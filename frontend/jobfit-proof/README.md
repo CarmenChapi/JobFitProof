@@ -1,36 +1,102 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# JobFitProof
+
+JobFitProof is a frontend prototype for checking how well a resume fits a job post before applying.
+
+The current version is a local Next.js workbench where a user can paste a resume, paste a job description, choose a target seniority, switch the interface between Spanish and English, generate a fit report, and export the result as JSON.
+
+## Current Features
+
+- Resume and job-post text inputs.
+- Target seniority selector.
+- Spanish/English language context with local preference persistence.
+- Local heuristic analysis for match score, strengths, gaps, and evidence by requirement.
+- Report export as JSON.
+- Responsive UI built with Next.js, React, Tailwind CSS, shadcn-style primitives, and lucide icons.
+
+## Tech Stack
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- shadcn/base UI primitives
+- lucide-react
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```txt
+http://127.0.0.1:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+If Turbopack hangs during local development in this environment, use Webpack:
 
-## Learn More
+```bash
+npm run dev -- --webpack --hostname 127.0.0.1
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Quality Checks
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Run lint:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run lint
+```
 
-## Deploy on Vercel
+Run a production build:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Structure
+
+```txt
+app/
+  layout.tsx              Global app shell and language provider
+  page.tsx                Home route
+components/
+  jobfit-workbench.tsx    Main interactive prototype
+  language-provider.tsx   Language context and persistence
+  ui/                     Shared UI primitives
+lib/
+  i18n.ts                 Spanish/English copy dictionaries
+  utils.ts                Shared utility helpers
+```
+
+## MVP Direction
+
+The agreed MVP flow is:
+
+- Paste resume text.
+- Paste job-post text.
+- Choose report language.
+- Choose target seniority.
+- Run analysis.
+- Review score, evidence, strengths, and gaps.
+- Export the report.
+
+The next practical step is to move the analysis behind an internal API route:
+
+```txt
+app/api/analyze/route.ts
+```
+
+At first, that route can return the same local heuristic result. Later, it can be swapped for an AI-backed analysis without rewriting the frontend workflow.
+
+## Notes
+
+The current scoring is intentionally simple and local. It is useful for validating the product flow, not for final hiring or career advice.
