@@ -2,35 +2,35 @@ const mockResult = {
   jobTitle: "Frontend Developer — React/TypeScript",
   scoreTotal: 78,
   resumen:
-    "Cumplís la mayoría de los requisitos técnicos. La principal brecha es la falta de experiencia liderando equipos.",
+    "Cumples la mayoría de los requisitos técnicos. La principal carencia es la falta de experiencia liderando equipos.",
   requisitos: [
     {
       requisito: "3+ años de experiencia con React",
-      categoria: "excluyente",
+      categoria: "imprescindible",
       cumple: "si",
       evidencia: "CV menciona 4 años como Frontend Developer usando React y Next.js.",
     },
     {
       requisito: "TypeScript en producción",
-      categoria: "excluyente",
+      categoria: "imprescindible",
       cumple: "si",
       evidencia: "Experiencia con TypeScript mencionada en 3 de 4 empleos listados.",
     },
     {
       requisito: "Inglés avanzado",
-      categoria: "deseable",
+      categoria: "valorable",
       cumple: "parcial",
       evidencia: "CV menciona inglés intermedio, sin certificación formal.",
     },
     {
       requisito: "Liderazgo de equipos de 3+ personas",
-      categoria: "deseable",
+      categoria: "valorable",
       cumple: "no",
       evidencia: "No se encontró mención de gestión o liderazgo de personas.",
     },
     {
-      requisito: "Experiencia con testing (Jest, Cypress)",
-      categoria: "deseable",
+      requisito: "Experiencia con pruebas automatizadas (Jest, Cypress)",
+      categoria: "valorable",
       cumple: "si",
       evidencia: "Se menciona uso de Jest en dos proyectos.",
     },
@@ -129,7 +129,7 @@ export default function MatchReportPreview() {
         </div>
 
         <p className="text-center text-[11px] font-mono text-[#14181F]/30 mt-8 uppercase tracking-wide">
-          Generado con IA — verifica   los resultados antes de postularte
+          Generado con IA — comprueba los resultados antes de presentar tu candidatura
         </p>
       </div>
     </div>

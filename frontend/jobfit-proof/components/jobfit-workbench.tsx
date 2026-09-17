@@ -19,24 +19,15 @@ import {
 
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
-import { languages, translations, type LanguageCopy } from "@/lib/i18n";
+import { languages, translations } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type Seniority = "junior" | "mid" | "senior";
 type RequirementStatus = "si" | "parcial" | "no";
-type RequirementId = keyof (typeof translations)["es"]["requirements"];
 type RequirementCategory = keyof (typeof translations)["es"]["categories"];
 
-type RequirementDefinition = {
-  id: RequirementId;
-  category: RequirementCategory;
-  patterns: string[];
-  relatedPatterns?: string[];
-  weight: number;
-};
-
 type ReportRequirement = {
-  id: RequirementId;
+  id: string;
   label: string;
   category: RequirementCategory;
   categoryLabel: string;
@@ -52,6 +43,9 @@ type AnalysisInput = {
 };
 
 type Report = {
+  generatedAt: string;
+  language: "es" | "en";
+  seniority: Seniority;
   roleTitle: string;
   score: number;
   summary: string;
@@ -59,70 +53,6 @@ type Report = {
   gaps: string[];
   requirements: ReportRequirement[];
 };
-
-const requirementBank: RequirementDefinition[] = [
-  {
-    id: "react",
-    category: "required",
-    patterns: ["react"],
-    weight: 18,
-  },
-  {
-    id: "typescript",
-    category: "required",
-    patterns: ["typescript", "type script"],
-    weight: 17,
-  },
-  {
-    id: "next",
-    category: "preferred",
-    patterns: ["next.js", "nextjs", "next "],
-    relatedPatterns: ["server side", "ssr", "app router"],
-    weight: 12,
-  },
-  {
-    id: "api",
-    category: "required",
-    patterns: ["api", "apis", "rest", "graphql"],
-    weight: 11,
-  },
-  {
-    id: "testing",
-    category: "preferred",
-    patterns: ["testing", "test", "tests", "jest", "cypress", "playwright", "vitest"],
-    weight: 10,
-  },
-  {
-    id: "accessibility",
-    category: "preferred",
-    patterns: ["accesibilidad", "accessibility", "a11y", "wcag"],
-    weight: 8,
-  },
-  {
-    id: "performance",
-    category: "preferred",
-    patterns: ["performance", "rendimiento", "core web vitals", "lighthouse"],
-    weight: 8,
-  },
-  {
-    id: "product",
-    category: "preferred",
-    patterns: ["producto", "product", "stakeholder", "diseno", "diseño", "design"],
-    weight: 7,
-  },
-  {
-    id: "english",
-    category: "preferred",
-    patterns: ["ingles", "english", "b2", "c1", "advanced", "avanzado"],
-    weight: 5,
-  },
-  {
-    id: "leadership",
-    category: "preferred",
-    patterns: ["lider", "liderazgo", "lead", "leadership", "mentoring", "mentor", "guiando", "guided"],
-    weight: 4,
-  },
-];
 
 const seniorityLabels: Record<Seniority, string> = {
   junior: "Junior",
@@ -147,135 +77,6 @@ const statusStyles: Record<
     className: "border-rose-200 bg-rose-50 text-rose-700",
   },
 };
-
-function normalizeText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, " ");
-}
-
-function hasAnyPattern(text: string, patterns: string[]) {
-  return patterns.some((pattern) => text.includes(normalizeText(pattern)));
-}
-
-function createEvidence(
-  requirement: RequirementDefinition,
-  status: RequirementStatus,
-  copy: LanguageCopy,
-) {
-  return copy.evidence[status](copy.requirements[requirement.id]);
-}
-
-function inferRoleTitle(jobText: string, copy: LanguageCopy) {
-  const normalized = normalizeText(jobText);
-
-  if (normalized.includes("frontend")) {
-    return "Frontend Developer";
-  }
-
-  if (normalized.includes("full stack") || normalized.includes("fullstack")) {
-    return "Full Stack Developer";
-  }
-
-  if (normalized.includes("react")) {
-    return "React Developer";
-  }
-
-  return copy.report.roleFallback;
-}
-
-function buildReport(
-  cvText: string,
-  jobText: string,
-  seniority: Seniority,
-  copy: LanguageCopy,
-): Report {
-  const normalizedCv = normalizeText(cvText);
-  const normalizedJob = normalizeText(jobText);
-  const jobHasKnownRequirements = requirementBank.some((requirement) =>
-    hasAnyPattern(normalizedJob, requirement.patterns),
-  );
-
-  const activeRequirements = requirementBank.filter((requirement, index) => {
-    if (!jobHasKnownRequirements) {
-      return index < 6;
-    }
-
-    return (
-      hasAnyPattern(normalizedJob, requirement.patterns) ||
-      ["react", "typescript", "api"].includes(requirement.id)
-    );
-  });
-
-  const requirements = activeRequirements.map((requirement) => {
-    const directMatch = hasAnyPattern(normalizedCv, requirement.patterns);
-    const relatedMatch = requirement.relatedPatterns
-      ? hasAnyPattern(normalizedCv, requirement.relatedPatterns)
-      : false;
-    const seniorLeadershipPartial =
-      requirement.id === "leadership" && seniority !== "junior" && normalizedCv.length > 120;
-    const status: RequirementStatus = directMatch
-      ? "si"
-      : relatedMatch || seniorLeadershipPartial
-        ? "parcial"
-        : "no";
-
-    return {
-      id: requirement.id,
-      label: copy.requirements[requirement.id],
-      category: requirement.category,
-      categoryLabel: copy.categories[requirement.category],
-      status,
-      evidence: createEvidence(requirement, status, copy),
-      weight: requirement.weight,
-    };
-  });
-
-  const totalWeight = requirements.reduce((sum, item) => sum + item.weight, 0);
-  const earnedWeight = requirements.reduce((sum, item) => {
-    if (item.status === "si") {
-      return sum + item.weight;
-    }
-
-    if (item.status === "parcial") {
-      return sum + item.weight * 0.48;
-    }
-
-    return sum;
-  }, 0);
-
-  const seniorityAdjustment =
-    seniority === "senior" &&
-    !hasAnyPattern(normalizedCv, ["lider", "lead", "leadership", "arquitectura", "architecture"])
-      ? -5
-      : seniority === "junior"
-        ? 3
-        : 0;
-  const score = Math.max(
-    8,
-    Math.min(96, Math.round((earnedWeight / Math.max(totalWeight, 1)) * 100 + seniorityAdjustment)),
-  );
-  const matched = requirements.filter((item) => item.status === "si");
-  const gaps = requirements
-    .filter((item) => item.status !== "si")
-    .slice(0, 3)
-    .map((item) => item.label);
-
-  return {
-    roleTitle: inferRoleTitle(jobText, copy),
-    score,
-    summary:
-      score >= 78
-        ? copy.report.highSummary
-        : score >= 55
-          ? copy.report.midSummary
-          : copy.report.lowSummary,
-    strengths: matched.slice(0, 4).map((item) => item.label),
-    gaps,
-    requirements,
-  };
-}
 
 function Metric({
   label,
@@ -310,6 +111,9 @@ export function JobFitWorkbench() {
     jobText: translations.es.samples.job,
     seniority: "mid",
   });
+  const [report, setReport] = useState<Report | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   useEffect(() => {
     const previousLanguage = previousLanguageRef.current;
@@ -330,13 +134,10 @@ export function JobFitWorkbench() {
       cvText: current.cvText === previousCopy.samples.cv ? nextCopy.samples.cv : current.cvText,
       jobText: current.jobText === previousCopy.samples.job ? nextCopy.samples.job : current.jobText,
     }));
+    setReport(null);
+    setAnalysisError(null);
     previousLanguageRef.current = language;
   }, [language]);
-
-  const report = useMemo(
-    () => buildReport(analysisInput.cvText, analysisInput.jobText, analysisInput.seniority, t),
-    [analysisInput, t],
-  );
 
   const formStats = useMemo(
     () => ({
@@ -347,20 +148,44 @@ export function JobFitWorkbench() {
   );
 
   const canAnalyze = cvText.trim().length > 80 && jobText.trim().length > 80;
-  const gapText = report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
+  const gapText =
+    report && report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
 
-  function handleAnalyze() {
+  async function handleAnalyze() {
     if (!canAnalyze) {
       return;
     }
 
-    setAnalysisInput({ cvText, jobText, seniority });
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cvText, jobText, seniority, language }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Analysis request failed with status ${response.status}`);
+      }
+
+      const nextReport = (await response.json()) as Report;
+      setAnalysisInput({ cvText, jobText, seniority });
+      setReport(nextReport);
+    } catch {
+      setAnalysisError(t.form.analysisError);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   function handleReset() {
     setCvText("");
     setJobText("");
     setSeniority("mid");
+    setReport(null);
+    setAnalysisError(null);
   }
 
   function handleLoadSample() {
@@ -373,10 +198,15 @@ export function JobFitWorkbench() {
     setCvText(nextAnalysisInput.cvText);
     setJobText(nextAnalysisInput.jobText);
     setSeniority(nextAnalysisInput.seniority);
-    setAnalysisInput(nextAnalysisInput);
+    setReport(null);
+    setAnalysisError(null);
   }
 
   function handleExport() {
+    if (!report) {
+      return;
+    }
+
     const filename = report.roleTitle
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
@@ -467,10 +297,14 @@ export function JobFitWorkbench() {
             <Button
               className="h-9 flex-1 rounded-[8px] bg-slate-950 text-white hover:bg-slate-800 sm:flex-none"
               onClick={handleAnalyze}
-              disabled={!canAnalyze}
+              disabled={!canAnalyze || isAnalyzing}
             >
-              <Play className="size-4" aria-hidden="true" />
-              {t.actions.analyze}
+              {isAnalyzing ? (
+                <RefreshCcw className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="size-4" aria-hidden="true" />
+              )}
+              {isAnalyzing ? t.actions.analyzing : t.actions.analyze}
             </Button>
           </div>
         </header>
@@ -565,6 +399,7 @@ export function JobFitWorkbench() {
                   variant="outline"
                   size="sm"
                   onClick={handleExport}
+                  disabled={!report}
                 >
                   <Download className="size-4" aria-hidden="true" />
                   {t.actions.export}
@@ -572,6 +407,13 @@ export function JobFitWorkbench() {
               </div>
             </div>
 
+            {analysisError ? (
+              <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:px-5">
+                {analysisError}
+              </div>
+            ) : null}
+
+            {report ? (
             <div className="p-4 sm:p-5">
               <div className="grid gap-5 xl:grid-cols-[220px_1fr]">
                 <div className="flex flex-col justify-between gap-5 border border-slate-200 bg-[#111827] p-5 text-white">
@@ -666,6 +508,11 @@ export function JobFitWorkbench() {
                 </p>
               </div>
             </div>
+            ) : (
+              <div className="flex min-h-96 items-center justify-center p-8 text-center text-sm text-slate-500">
+                {isAnalyzing ? t.actions.analyzing : t.report.title}
+              </div>
+            )}
           </section>
         </div>
       </div>

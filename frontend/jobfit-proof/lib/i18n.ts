@@ -13,7 +13,7 @@ export const languages: Array<{
 
 export const translations = {
   es: {
-    appSubtitle: "Evidencia clara antes de postular",
+    appSubtitle: "Evidencia clara antes de presentar tu candidatura",
     language: {
       label: "Idioma",
       es: "Español",
@@ -24,58 +24,60 @@ export const translations = {
       sample: "Ejemplo",
       clear: "Limpiar",
       analyze: "Analizar",
+      analyzing: "Analizando...",
       export: "Exportar",
       resetInputs: "Reiniciar entradas",
     },
     form: {
-      title: "Material de postulación",
-      badge: "Demo local",
+      title: "Documentación de la candidatura",
+      badge: "API conectada",
       cvLabel: "CV",
       cvPlaceholder: "Pega aquí el texto del CV.",
-      jobLabel: "Oferta",
-      jobPlaceholder: "Pega aquí la descripción del puesto.",
-      seniority: "Seniority objetivo",
-      minWarning: "Necesito al menos 80 caracteres en cada campo para generar un reporte.",
+      jobLabel: "Oferta de empleo",
+      jobPlaceholder: "Pega aquí la descripción de la oferta de empleo.",
+      seniority: "Nivel profesional objetivo",
+      minWarning: "Necesito al menos 80 caracteres en cada campo para generar un informe.",
+      analysisError: "No se pudo generar el informe. Comprueba que el servidor está funcionando.",
       wordCount: (count: number) => `${count} ${count === 1 ? "palabra" : "palabras"}`,
     },
     report: {
-      title: "Reporte de encaje",
-      matchScore: "Puntaje de encaje",
+      title: "Informe de adecuación",
+      matchScore: "Puntuación de adecuación",
       roleFallback: "Rol objetivo",
       requirementsMetric: "Requisitos",
       strengthsMetric: "Fortalezas",
-      gapsMetric: "Brechas",
+      gapsMetric: "Carencias",
       requirementsValue: (count: number) => `${count} ${count === 1 ? "evaluado" : "evaluados"}`,
       strengthsValue: (count: number) => `${count} ${count === 1 ? "fuerte" : "fuertes"}`,
-      noCriticalGaps: "Sin brechas críticas",
+      noCriticalGaps: "Sin carencias importantes",
       evidenceTitle: "Evidencia por requisito",
       statusTitle: "Estado",
       nextTitle: "Siguiente mejora sugerida",
-      filenameFallback: "reporte",
+      filenameFallback: "informe",
       highSummary: "Buen encaje inicial. El CV ya muestra varias pruebas fuertes para esta oferta.",
-      midSummary: "Encaje prometedor, con brechas que se pueden mejorar antes de postular.",
-      lowSummary: "Conviene reforzar evidencia clave antes de aplicar a esta posición.",
+      midSummary: "Adecuación prometedora, con aspectos que se pueden mejorar antes de presentar la candidatura.",
+      lowSummary: "Conviene reforzar las evidencias clave antes de presentar la candidatura a este puesto.",
       improve: (gap: string) =>
         `Refuerza ${gap.toLowerCase()} con una frase que incluya contexto, acción e impacto.`,
       ready: "El CV está listo para una versión final orientada a esta oferta.",
     },
     status: {
       si: "Cumple",
-      parcial: "Parcial",
-      no: "Brecha",
+      parcial: "Cumple parcialmente",
+      no: "No cumple",
     },
     categories: {
-      required: "excluyente",
-      preferred: "deseable",
+      required: "imprescindible",
+      preferred: "valorable",
     },
     requirements: {
       react: "React en producto",
       typescript: "TypeScript en producción",
       next: "Next.js / SSR",
       api: "Integración con APIs",
-      testing: "Testing frontend",
+      testing: "Pruebas de frontend",
       accessibility: "Accesibilidad",
-      performance: "Performance web",
+      performance: "Rendimiento web",
       product: "Trabajo con producto",
       english: "Inglés profesional",
       leadership: "Liderazgo técnico",
@@ -89,13 +91,13 @@ export const translations = {
     },
     samples: {
       cv: `Frontend Developer con 4 años creando productos SaaS con React, TypeScript y Next.js.
-He trabajado con APIs REST, diseño de componentes, accesibilidad WCAG y performance web.
-En mi último rol reduje el tiempo de carga inicial un 32% y añadí tests con Jest y Playwright.
+He trabajado con API REST, diseño de componentes, accesibilidad WCAG y rendimiento web.
+En mi último puesto reduje el tiempo de carga inicial un 32 % y añadí pruebas con Jest y Playwright.
 Colaboré con producto, diseño y backend para convertir requisitos ambiguos en entregas medibles.`,
       job: `Buscamos Frontend Developer React/TypeScript para un producto B2B.
-Requisitos: 3+ años con React, TypeScript en producción, Next.js, consumo de APIs y testing.
-Valoramos accesibilidad, foco en performance, comunicación con producto e inglés intermedio/avanzado.
-Plus: experiencia guiando a otros developers o liderando iniciativas técnicas.`,
+Requisitos: más de 3 años con React, TypeScript en producción, Next.js, consumo de API y pruebas automatizadas.
+Valoramos la accesibilidad, la atención al rendimiento, la comunicación con producto y un nivel de inglés intermedio o avanzado.
+También se valorará la experiencia orientando a otros desarrolladores o liderando iniciativas técnicas.`,
     },
   },
   en: {
@@ -109,19 +111,21 @@ Plus: experiencia guiando a otros developers o liderando iniciativas técnicas.`
     actions: {
       sample: "Sample",
       clear: "Clear",
-      analyze: "Analyze",
+      analyze: "Analyse",
+      analyzing: "Analysing...",
       export: "Export",
       resetInputs: "Reset inputs",
     },
     form: {
       title: "Application material",
-      badge: "Local demo",
-      cvLabel: "Resume",
-      cvPlaceholder: "Paste the resume text here.",
-      jobLabel: "Job post",
-      jobPlaceholder: "Paste the job description here.",
-      seniority: "Target seniority",
+      badge: "API connected",
+      cvLabel: "CV",
+      cvPlaceholder: "Paste the CV text here.",
+      jobLabel: "Job advert",
+      jobPlaceholder: "Paste the job advert here.",
+      seniority: "Target level",
       minWarning: "I need at least 80 characters in each field to generate a report.",
+      analysisError: "The report could not be generated. Check that the backend is running.",
       wordCount: (count: number) => `${count} ${count === 1 ? "word" : "words"}`,
     },
     report: {
@@ -138,12 +142,12 @@ Plus: experiencia guiando a otros developers o liderando iniciativas técnicas.`
       statusTitle: "Status",
       nextTitle: "Suggested next improvement",
       filenameFallback: "report",
-      highSummary: "Strong initial fit. The resume already shows several solid proof points for this role.",
+      highSummary: "Strong initial fit. The CV already provides several clear examples of relevant experience for this role.",
       midSummary: "Promising fit, with gaps that can be improved before applying.",
       lowSummary: "It is worth strengthening key evidence before applying to this role.",
       improve: (gap: string) =>
         `Strengthen ${gap.toLowerCase()} with a sentence that includes context, action, and impact.`,
-      ready: "The resume is ready for a final version tailored to this role.",
+      ready: "The CV is ready for a final version tailored to this role.",
     },
     status: {
       si: "Met",
@@ -167,11 +171,11 @@ Plus: experiencia guiando a otros developers o liderando iniciativas técnicas.`
       leadership: "Technical leadership",
     },
     evidence: {
-      si: (label: string) => `There is direct evidence of ${label.toLowerCase()} in the resume.`,
+      si: (label: string) => `There is direct evidence of ${label.toLowerCase()} in the CV.`,
       parcial: (label: string) =>
         `Related signals appear, but ${label.toLowerCase()} should be stated with measurable impact.`,
       no: (label: string) =>
-        `There is no clear proof of ${label.toLowerCase()} for this requirement.`,
+        `There is no clear evidence of ${label.toLowerCase()} for this requirement.`,
     },
     samples: {
       cv: `Frontend Developer with 4 years building SaaS products with React, TypeScript, and Next.js.
