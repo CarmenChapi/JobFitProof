@@ -2,14 +2,14 @@
 
 JobFitProof is a frontend prototype for checking how well a resume fits a job post before applying.
 
-The current version is a local Next.js workbench where a user can paste a resume, paste a job description, choose a target seniority, switch the interface between Spanish and English, generate a fit report, and export the result as JSON.
+The current version is a Next.js workbench connected to the JobFit Proof API. A user can paste a resume, paste a job description, choose a target seniority, switch the interface between Spanish and English, generate a fit report, and export the result as JSON.
 
 ## Current Features
 
 - Resume and job-post text inputs.
 - Target seniority selector.
 - Spanish/English language context with local preference persistence.
-- Local heuristic analysis for match score, strengths, gaps, and evidence by requirement.
+- Backend analysis for match score, strengths, gaps, and evidence by requirement.
 - Report export as JSON.
 - Responsive UI built with Next.js, React, Tailwind CSS, shadcn-style primitives, and lucide icons.
 
@@ -28,6 +28,12 @@ Install dependencies:
 
 ```bash
 npm install
+```
+
+Copy the environment file and start the backend on port 4000:
+
+```bash
+cp .env.example .env.local
 ```
 
 Run the development server:
@@ -89,14 +95,14 @@ The agreed MVP flow is:
 - Review score, evidence, strengths, and gaps.
 - Export the report.
 
-The next practical step is to move the analysis behind an internal API route:
+The frontend sends analyses through an internal API route:
 
 ```txt
 app/api/analyze/route.ts
 ```
 
-At first, that route can return the same local heuristic result. Later, it can be swapped for an AI-backed analysis without rewriting the frontend workflow.
+That route proxies requests to `BACKEND_API_URL`, which defaults to `http://127.0.0.1:4000`.
 
 ## Notes
 
-The current scoring is intentionally simple and local. It is useful for validating the product flow, not for final hiring or career advice.
+The current backend scoring is intentionally simple. It is useful for validating the product flow, not for final hiring or career advice.
