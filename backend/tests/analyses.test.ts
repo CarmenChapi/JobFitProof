@@ -45,6 +45,7 @@ describe("POST /api/v1/analyses", () => {
     expect(response.json().score).toBeGreaterThanOrEqual(8);
     expect(response.json().score).toBeLessThanOrEqual(96);
     expect(Date.parse(response.json().generatedAt)).not.toBeNaN();
+    expect(response.json().source).toBe("heuristic");
   });
 
   it("uses Spanish when language is omitted", async () => {

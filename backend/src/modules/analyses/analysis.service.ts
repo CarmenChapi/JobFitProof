@@ -112,21 +112,21 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
     roleFallback: "Rol objetivo",
     summaries: {
       high: "Buen encaje inicial. El CV ya muestra varias pruebas fuertes para esta oferta.",
-      mid: "Encaje prometedor, con brechas que se pueden mejorar antes de postular.",
-      low: "Conviene reforzar evidencia clave antes de aplicar a esta posición."
+      mid: "Adecuación prometedora, con aspectos que se pueden mejorar antes de presentar la candidatura.",
+      low: "Conviene reforzar las evidencias clave antes de presentar la candidatura a este puesto."
     },
     categories: {
-      required: "excluyente",
-      preferred: "deseable"
+      required: "imprescindible",
+      preferred: "valorable"
     },
     requirements: {
       react: "React en producto",
       typescript: "TypeScript en producción",
       next: "Next.js / SSR",
       api: "Integración con APIs",
-      testing: "Testing frontend",
+      testing: "Pruebas de frontend",
       accessibility: "Accesibilidad",
-      performance: "Performance web",
+      performance: "Rendimiento web",
       product: "Trabajo con producto",
       english: "Inglés profesional",
       leadership: "Liderazgo técnico"
@@ -141,7 +141,7 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
   en: {
     roleFallback: "Target role",
     summaries: {
-      high: "Strong initial fit. The resume already shows several solid proof points for this role.",
+      high: "Strong initial fit. The CV already provides several clear examples of relevant experience for this role.",
       mid: "Promising fit, with gaps that can be improved before applying.",
       low: "It is worth strengthening key evidence before applying to this role."
     },
@@ -162,10 +162,10 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
       leadership: "Technical leadership"
     },
     evidence: {
-      si: (label) => `There is direct evidence of ${label.toLowerCase()} in the resume.`,
+      si: (label) => `There is direct evidence of ${label.toLowerCase()} in the CV.`,
       parcial: (label) =>
         `Related signals appear, but ${label.toLowerCase()} should be stated with measurable impact.`,
-      no: (label) => `There is no clear proof of ${label.toLowerCase()} for this requirement.`
+      no: (label) => `There is no clear evidence of ${label.toLowerCase()} for this requirement.`
     }
   }
 };
@@ -199,7 +199,7 @@ function inferRoleTitle(jobText: string, copy: AnalysisCopy): string {
   return copy.roleFallback;
 }
 
-export function createAnalysis(input: CreateAnalysisInput): AnalysisReport {
+export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisReport {
   const copy = copyByLanguage[input.language];
   const normalizedCv = normalizeText(input.cvText);
   const normalizedJob = normalizeText(input.jobText);
@@ -289,6 +289,7 @@ export function createAnalysis(input: CreateAnalysisInput): AnalysisReport {
       score >= 78 ? copy.summaries.high : score >= 55 ? copy.summaries.mid : copy.summaries.low,
     strengths: matchedRequirements.slice(0, 4).map((requirement) => requirement.label),
     gaps,
-    requirements
+    requirements,
+    source: "heuristic"
   };
 }
