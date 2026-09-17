@@ -10,6 +10,14 @@ cp .env.example .env
 npm run dev
 ```
 
+Set `OPENAI_API_KEY` in `.env` before starting the server. The analysis endpoint uses
+the OpenAI Responses API with Structured Outputs and defaults to `gpt-5-mini`.
+`OPENAI_MODEL` and `OPENAI_TIMEOUT_MS` can be changed in `.env`.
+
+If the API key is missing or OpenAI is temporarily unavailable, the endpoint returns
+the local heuristic analysis with `source: "heuristic"`. Successful AI analyses return
+`source: "ai"`. Test runs always use the heuristic and never call the external API.
+
 The API runs on `http://localhost:4000` by default.
 
 ## Scripts

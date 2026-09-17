@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { createAnalysisSchema } from "./analysis.schema.js";
-import { createAnalysis } from "./analysis.service.js";
+import { createAnalysis } from "./analysis.ai.service.js";
 
 export async function analysisRoutes(app: FastifyInstance): Promise<void> {
   app.post("/analyses", async (request, reply) => {
@@ -18,6 +18,6 @@ export async function analysisRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    return reply.status(200).send(createAnalysis(result.data));
+    return reply.status(200).send(await createAnalysis(result.data));
   });
 }

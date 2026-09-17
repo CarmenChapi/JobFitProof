@@ -199,7 +199,7 @@ function inferRoleTitle(jobText: string, copy: AnalysisCopy): string {
   return copy.roleFallback;
 }
 
-export function createAnalysis(input: CreateAnalysisInput): AnalysisReport {
+export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisReport {
   const copy = copyByLanguage[input.language];
   const normalizedCv = normalizeText(input.cvText);
   const normalizedJob = normalizeText(input.jobText);
@@ -289,6 +289,7 @@ export function createAnalysis(input: CreateAnalysisInput): AnalysisReport {
       score >= 78 ? copy.summaries.high : score >= 55 ? copy.summaries.mid : copy.summaries.low,
     strengths: matchedRequirements.slice(0, 4).map((requirement) => requirement.label),
     gaps,
-    requirements
+    requirements,
+    source: "heuristic"
   };
 }

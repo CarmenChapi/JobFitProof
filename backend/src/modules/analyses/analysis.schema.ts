@@ -38,4 +38,5 @@ export type AnalysisReport = {
   strengths: string[];
   gaps: string[];
   requirements: AnalysisRequirement[];
+  source: "ai" | "heuristic";
 };
