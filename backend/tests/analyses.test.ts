@@ -18,13 +18,13 @@ const validInput = {
   cvText:
     "Frontend Developer con cuatro años creando productos con React, TypeScript y Next.js. También he integrado APIs REST y escrito tests con Vitest.",
   jobText:
-    "Buscamos Frontend Developer con experiencia sólida en React, TypeScript, Next.js, integración de APIs REST y testing automatizado.",
+    "Buscamos Frontend Developer con experiencia sólida en React, TypeScript, Next.js, integración de API REST y pruebas automatizadas.",
   seniority: "mid",
   language: "es"
 };
 
 describe("POST /api/v1/analyses", () => {
-  it("returns a localized fit report", async () => {
+  it("returns a localised fit report", async () => {
     const response = await createApp().inject({
       method: "POST",
       url: "/api/v1/analyses",

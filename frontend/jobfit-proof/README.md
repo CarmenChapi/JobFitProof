@@ -1,13 +1,13 @@
 # JobFitProof
 
-JobFitProof is a frontend prototype for checking how well a resume fits a job post before applying.
+JobFitProof is a frontend prototype for checking how well a CV fits a job advert before applying.
 
-The current version is a Next.js workbench connected to the JobFit Proof API. A user can paste a resume, paste a job description, choose a target seniority, switch the interface between Spanish and English, generate a fit report, and export the result as JSON.
+The current version is a Next.js workbench connected to the JobFit Proof API. A user can paste a CV, paste a job advert, choose a target level, switch the interface between Castilian Spanish and British English, generate a fit report, and export the result as JSON.
 
 ## Current Features
 
-- Resume and job-post text inputs.
-- Target seniority selector.
+- CV and job advert text inputs.
+- Target level selector.
 - Spanish/English language context with local preference persistence.
 - Backend analysis for match score, strengths, gaps, and evidence by requirement.
 - Report export as JSON.
@@ -87,10 +87,10 @@ lib/
 
 The agreed MVP flow is:
 
-- Paste resume text.
-- Paste job-post text.
+- Paste CV text.
+- Paste the job advert.
 - Choose report language.
-- Choose target seniority.
+- Choose the target level.
 - Run analysis.
 - Review score, evidence, strengths, and gaps.
 - Export the report.

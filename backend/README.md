@@ -47,7 +47,7 @@ tests/
 curl -X POST http://localhost:4000/api/v1/analyses \
   -H 'content-type: application/json' \
   -d '{
-    "cvText": "Resume or CV text with at least 80 characters...",
+    "cvText": "CV text with at least 80 characters...",
     "jobText": "Job description text with at least 80 characters...",
     "seniority": "mid",
     "language": "en"
