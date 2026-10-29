@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAnalysisInput } from "../../frontend/jobfit-proof/lib/analysis-input";
+import { parseAnalysisInput } from "../../frontend/lib/analysis-input";
 import { createAnalysisSchema } from "../src/modules/analyses/analysis.schema.js";
 import { sampleInput } from "./helpers.js";
 

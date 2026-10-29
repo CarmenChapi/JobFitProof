@@ -24,6 +24,8 @@ The current version is a Next.js workbench connected to the JobFit Proof API. A 
 
 ## Getting Started
 
+Run the commands below from the repository's `frontend/` directory.
+
 Install dependencies:
 
 ```bash
@@ -39,6 +41,12 @@ cp .env.example .env.local
 Set `INTERNAL_API_SECRET` to the same generated secret as the backend and start
 Redis as described in the backend README. The secret must contain 64 lower-case
 hexadecimal characters. Keep it server-only and never prefix it with `NEXT_PUBLIC_`.
+
+Set `APP_ORIGIN` to the exact address used in the browser. The example uses
+`http://127.0.0.1:3000`; if you use `http://localhost:3000` or a different port,
+update it accordingly. Next.js normalises loopback addresses internally, so an
+explicit origin avoids rejecting valid local requests. Restart the development
+server after changing environment variables.
 
 Run the development server:
 
@@ -180,6 +188,14 @@ Responses are marked `no-store`. Input and quota errors preserve entered text an
 show a localised message; no automatic retries are made by the interface. These
 application checks complement the hosting provider's connection and traffic limits,
 which will be configured when deployment is chosen.
+
+Upstream error bodies are never forwarded verbatim. Input errors use fixed public
+messages; other failures become `503 AnalysisUnavailable`. For `429` responses,
+only the four recognised quota codes and a numeric `Retry-After` header are retained.
+Reading a quota error body is limited to 4 KiB and one second; malformed, oversized
+or stalled bodies fall back to `RateLimitExceeded` without revealing their contents.
+Only a valid UUID from the backend's `X-Request-Id` header is forwarded, so a failure
+can be matched to the backend log without exposing exception details.
 
 ## Notes
 
