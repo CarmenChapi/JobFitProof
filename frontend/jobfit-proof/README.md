@@ -27,7 +27,7 @@ The current version is a Next.js workbench connected to the JobFit Proof API. A 
 Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
 Copy the environment file and start the backend on port 4000:
@@ -79,6 +79,22 @@ npm test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts
 ```
 
 These tests use mocked upstream requests and do not call OpenAI or require Redis.
+
+Check dependency advisories, including development tools, with `npm audit`.
+Use `npm audit --omit=dev` to inspect the production dependencies separately.
+After updating dependencies, commit both `package.json` and `package-lock.json`,
+then run lint, the production build and the backend tests (which exercise this proxy).
+
+The shadcn generator is not an installed dependency. The existing UI components
+live in `components/ui/` and use Base UI and Tailwind directly. No component uses
+the generator's additional stylesheet. If new generated components require extra
+styles, add the required styles locally and review their dependency requirements.
+
+The scoped npm override keeps the optional WASM resolver used by ESLint on
+`@napi-rs/wasm-runtime` 1.1.6, compatible with the resolver's `@emnapi` 1.x peers.
+Runtime 1.2.0 requires `@emnapi` 2.x prereleases, conflicting with resolver 1.12.2.
+Review this override when `@unrs/resolver-binding-wasm32-wasi` is updated; it applies
+only to version 1.12.2 and does not change Next.js runtime dependencies.
 
 ## Project Structure
 

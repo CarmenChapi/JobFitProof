@@ -5,7 +5,7 @@ Backend API for JobFit Proof.
 ## Getting Started
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
 ```
 
@@ -43,6 +43,13 @@ The API runs on `http://localhost:4000` by default.
 - `npm start`: run the compiled API.
 - `npm run typecheck`: check TypeScript without emitting files.
 - `npm test`: run the test suite.
+
+Check dependency advisories, including test tools, with `npm audit`.
+Use `npm audit --omit=dev` to inspect production dependencies separately.
+After updates, commit both `package.json` and `package-lock.json`, then run
+`npm run build` and `npm test`. Install the frontend dependencies as well: the
+test suite imports the Next.js proxy and its input validator. Redis integration
+tests require `REDIS_TEST_URL` pointing to a test Redis instance.
 
 ## Structure
 
