@@ -24,6 +24,8 @@ The current version is a Next.js workbench connected to the JobFit Proof API. A 
 
 ## Getting Started
 
+Run the commands below from the repository's `frontend/` directory.
+
 Install dependencies:
 
 ```bash
@@ -39,6 +41,12 @@ cp .env.example .env.local
 Set `INTERNAL_API_SECRET` to the same generated secret as the backend and start
 Redis as described in the backend README. The secret must contain 64 lower-case
 hexadecimal characters. Keep it server-only and never prefix it with `NEXT_PUBLIC_`.
+
+Set `APP_ORIGIN` to the exact address used in the browser. The example uses
+`http://127.0.0.1:3000`; if you use `http://localhost:3000` or a different port,
+update it accordingly. Next.js normalises loopback addresses internally, so an
+explicit origin avoids rejecting valid local requests. Restart the development
+server after changing environment variables.
 
 Run the development server:
 

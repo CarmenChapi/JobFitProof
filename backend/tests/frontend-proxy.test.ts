@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { POST } from "../../frontend/jobfit-proof/app/api/analyze/route";
+import { POST } from "../../frontend/app/api/analyze/route";
 import { buildApp } from "../src/app.js";
 import { createQuotaStore, sampleInput, serviceHeaders } from "./helpers.js";
 
