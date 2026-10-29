@@ -19,6 +19,7 @@ import {
 
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
+import { parseAnalysisInput } from "@/lib/analysis-input";
 import { languages, translations } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -147,7 +148,7 @@ export function JobFitWorkbench() {
     [cvText, jobText],
   );
 
-  const canAnalyze = cvText.trim().length > 80 && jobText.trim().length > 80;
+  const canAnalyze = parseAnalysisInput({ cvText, jobText, seniority, language }) !== null;
   const gapText =
     report && report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
 
@@ -165,6 +166,29 @@ export function JobFitWorkbench() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ cvText, jobText, seniority, language }),
       });
+
+      if (response.status === 429) {
+        const details = await response.json().catch(() => ({}));
+        const retryAfter = Number(response.headers.get("retry-after"));
+        setAnalysisError(
+          details.error === "AnalysisBusy"
+            ? t.form.analysisBusy
+            : ["DailyLimitExceeded", "GlobalLimitExceeded"].includes(details.error)
+              ? t.form.dailyLimit
+              : t.form.rateLimit(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60),
+        );
+        return;
+      }
+
+      if ([400, 413, 415].includes(response.status)) {
+        setAnalysisError(t.form.invalidInput);
+        return;
+      }
+
+      if (response.status === 408) {
+        setAnalysisError(t.form.uploadTimeout);
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`Analysis request failed with status ${response.status}`);
@@ -408,7 +432,7 @@ export function JobFitWorkbench() {
             </div>
 
             {analysisError ? (
-              <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:px-5">
+              <div role="alert" className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:px-5">
                 {analysisError}
               </div>
             ) : null}

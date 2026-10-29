@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
+import { createQuotaStore, serviceHeaders } from "./helpers.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
 
@@ -9,7 +10,7 @@ afterEach(async () => {
 });
 
 function createApp() {
-  const app = buildApp();
+  const app = buildApp({ quotaStore: createQuotaStore() });
   apps.push(app);
   return app;
 }
@@ -28,6 +29,7 @@ describe("POST /api/v1/analyses", () => {
     const response = await createApp().inject({
       method: "POST",
       url: "/api/v1/analyses",
+      headers: serviceHeaders,
       payload: validInput
     });
 
@@ -53,6 +55,7 @@ describe("POST /api/v1/analyses", () => {
     const response = await createApp().inject({
       method: "POST",
       url: "/api/v1/analyses",
+      headers: serviceHeaders,
       payload: inputWithoutLanguage
     });
 
@@ -64,6 +67,7 @@ describe("POST /api/v1/analyses", () => {
     const response = await createApp().inject({
       method: "POST",
       url: "/api/v1/analyses",
+      headers: serviceHeaders,
       payload: {
         ...validInput,
         cvText: "React"
@@ -82,6 +86,7 @@ describe("POST /api/v1/analyses", () => {
     const response = await createApp().inject({
       method: "POST",
       url: "/api/v1/analyses",
+      headers: serviceHeaders,
       payload: {
         ...validInput,
         userId: "not-supported-yet"

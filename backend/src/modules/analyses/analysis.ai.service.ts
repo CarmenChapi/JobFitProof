@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import { env } from "../../config/env.js";
 import type { AnalysisReport, CreateAnalysisInput } from "./analysis.schema.js";
-import { createHeuristicAnalysis } from "./analysis.service.js";
 
 const aiReportSchema = z.object({
   roleTitle: z.string().min(1).max(120),
@@ -44,7 +43,7 @@ function categoryLabel(category: "required" | "preferred", language: "es" | "en"
   return category;
 }
 
-async function createAiAnalysis(input: CreateAnalysisInput): Promise<AnalysisReport> {
+export async function createAiAnalysis(input: CreateAnalysisInput): Promise<AnalysisReport> {
   if (!env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
@@ -52,7 +51,7 @@ async function createAiAnalysis(input: CreateAnalysisInput): Promise<AnalysisRep
   const client = new OpenAI({
     apiKey: env.OPENAI_API_KEY,
     timeout: env.OPENAI_TIMEOUT_MS,
-    maxRetries: 1
+    maxRetries: 0
   });
   const locale = input.language === "es" ? "es-ES" : "en-GB";
   const response = await client.responses.parse({
@@ -70,7 +69,7 @@ async function createAiAnalysis(input: CreateAnalysisInput): Promise<AnalysisRep
     },
     max_output_tokens: 3_000,
     store: false
-  });
+  }, { signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS) });
 
   if (!response.output_parsed) {
     throw new Error("OpenAI returned no structured analysis");
@@ -87,19 +86,4 @@ async function createAiAnalysis(input: CreateAnalysisInput): Promise<AnalysisRep
     })),
     source: "ai"
   };
-}
-
-export async function createAnalysis(input: CreateAnalysisInput): Promise<AnalysisReport> {
-  if (env.NODE_ENV === "test") {
-    return createHeuristicAnalysis(input);
-  }
-
-  try {
-    return await createAiAnalysis(input);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown OpenAI error";
-
-    console.error(`AI analysis failed; using heuristic fallback: ${message}`);
-    return createHeuristicAnalysis(input);
-  }
 }
