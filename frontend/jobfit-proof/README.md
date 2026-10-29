@@ -72,6 +72,14 @@ Run a production build:
 npm run build
 ```
 
+Run the proxy security tests and frontend/backend input contract checks from `backend/`:
+
+```bash
+npm test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts
+```
+
+These tests use mocked upstream requests and do not call OpenAI or require Redis.
+
 ## Project Structure
 
 ```txt
@@ -83,7 +91,9 @@ components/
   language-provider.tsx   Language context and persistence
   ui/                     Shared UI primitives
 lib/
+  analysis-input.ts       Input validation shared by the form and server proxy
   i18n.ts                 Spanish/English copy dictionaries
+  server/analysis-proxy.ts Protected forwarding to the backend
   utils.ts                Shared utility helpers
 ```
 
@@ -135,9 +145,25 @@ IPv4-mapped IPv6 addresses share the corresponding IPv4 quota. IPv6 addresses in
 the same /64 share one quota. The normalised address is HMAC-hashed before it leaves
 Next.js. Users on a shared network may share a quota.
 
-The proxy caps request bodies at 512 KiB during streaming and limits body reading
-to five seconds. Responses are marked `no-store`. Quota errors preserve entered
-text and show a localised message; no automatic retries are made by the interface.
+The proxy accepts only uncompressed UTF-8 `application/json` requests. Before
+contacting the backend, it checks that the JSON is an object containing only
+`cvText`, `jobText`, `seniority` and the optional `language`. Both texts must contain
+80–50,000 characters after trimming; seniority must be `junior`, `mid` or `senior`,
+and language must be `es` or `en` (default `es`). Only the normalised input is
+forwarded. The backend independently validates the same contract before reserving
+quota or starting an analysis.
+
+The proxy caps request bodies at 512 KiB of actual streamed bytes and limits body
+reading to five seconds. If `Content-Length` is present, it must be a valid byte
+count matching the received body. A bounded buffer prevents tiny chunks from
+accumulating an unbounded list of objects. Rejected, timed-out and disconnected
+uploads are cancelled. Invalid input returns `400`, oversized uploads `413`,
+unsupported content types or encodings `415`, and upload timeouts `408`.
+
+Responses are marked `no-store`. Input and quota errors preserve entered text and
+show a localised message; no automatic retries are made by the interface. These
+application checks complement the hosting provider's connection and traffic limits,
+which will be configured when deployment is chosen.
 
 ## Notes
 

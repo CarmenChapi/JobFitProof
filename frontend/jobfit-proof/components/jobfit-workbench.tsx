@@ -19,6 +19,7 @@ import {
 
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
+import { parseAnalysisInput } from "@/lib/analysis-input";
 import { languages, translations } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -147,7 +148,7 @@ export function JobFitWorkbench() {
     [cvText, jobText],
   );
 
-  const canAnalyze = cvText.trim().length > 80 && jobText.trim().length > 80;
+  const canAnalyze = parseAnalysisInput({ cvText, jobText, seniority, language }) !== null;
   const gapText =
     report && report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
 
@@ -176,6 +177,16 @@ export function JobFitWorkbench() {
               ? t.form.dailyLimit
               : t.form.rateLimit(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60),
         );
+        return;
+      }
+
+      if ([400, 413, 415].includes(response.status)) {
+        setAnalysisError(t.form.invalidInput);
+        return;
+      }
+
+      if (response.status === 408) {
+        setAnalysisError(t.form.uploadTimeout);
         return;
       }
 

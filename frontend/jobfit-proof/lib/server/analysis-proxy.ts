@@ -2,6 +2,8 @@ import { createHmac } from "node:crypto";
 import { isIP } from "node:net";
 import ipaddr from "ipaddr.js";
 
+import { parseAnalysisInput } from "../analysis-input";
+
 const maxBodyBytes = 512 * 1024;
 
 class RequestBodyError extends Error {
@@ -17,48 +19,99 @@ function failure(status: number, error: string, message: string) {
   });
 }
 
+function rejectRequest(request: Request, status: number, error: string, message: string) {
+  if (!request.bodyUsed) {
+    void request.body?.cancel().catch(() => {});
+  }
+  return failure(status, error, message);
+}
+
 async function readBody(request: Request): Promise<string> {
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (!Number.isFinite(declaredLength) || declaredLength < 0) {
+  const lengthHeader = request.headers.get("content-length");
+  if (lengthHeader !== null && !/^\d+$/.test(lengthHeader)) {
     throw new RequestBodyError(400, "InvalidContentLength");
   }
-  if (declaredLength > maxBodyBytes) {
+  const declaredLength = lengthHeader === null ? null : Number(lengthHeader);
+  if (declaredLength !== null && declaredLength > maxBodyBytes) {
     throw new RequestBodyError(413, "PayloadTooLarge");
   }
+  if (request.signal.aborted) {
+    throw new RequestBodyError(400, "RequestAborted");
+  }
   if (!request.body) {
+    if (declaredLength) {
+      throw new RequestBodyError(400, "InvalidContentLength");
+    }
     return "";
   }
 
   const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
+  let bytes = new Uint8Array(Math.max(1024, declaredLength ?? 8192));
   let totalBytes = 0;
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
+  let interruption: RequestBodyError | undefined;
+  const cancel = (error: RequestBodyError) => {
+    interruption ??= error;
     void reader.cancel().catch(() => {});
-  }, 5_000);
+  };
+  const onAbort = () => cancel(new RequestBodyError(400, "RequestAborted"));
+  request.signal.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => cancel(new RequestBodyError(408, "RequestTimeout")), 5_000);
 
   try {
     while (true) {
       const chunk = await reader.read();
-      if (timedOut) {
-        throw new RequestBodyError(408, "RequestTimeout");
+      if (interruption) {
+        throw interruption;
       }
       if (chunk.done) {
         break;
       }
-      totalBytes += chunk.value.byteLength;
-      if (totalBytes > maxBodyBytes) {
-        void reader.cancel().catch(() => {});
+      const nextSize = totalBytes + chunk.value.byteLength;
+      if (nextSize > maxBodyBytes) {
         throw new RequestBodyError(413, "PayloadTooLarge");
       }
-      chunks.push(chunk.value);
+      if (declaredLength !== null && nextSize > declaredLength) {
+        throw new RequestBodyError(400, "InvalidContentLength");
+      }
+      if (nextSize > bytes.byteLength) {
+        const expanded = new Uint8Array(Math.min(maxBodyBytes, Math.max(nextSize, bytes.byteLength * 2)));
+        expanded.set(bytes.subarray(0, totalBytes));
+        bytes = expanded;
+      }
+      bytes.set(chunk.value, totalBytes);
+      totalBytes = nextSize;
     }
-    return Buffer.concat(chunks).toString("utf8");
+    if (declaredLength !== null && declaredLength !== totalBytes) {
+      throw new RequestBodyError(400, "InvalidContentLength");
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, totalBytes));
+  } catch (error) {
+    const bodyError = interruption ?? (
+      error instanceof RequestBodyError ? error : new RequestBodyError(400, "InvalidBody")
+    );
+    if (!interruption) {
+      cancel(bodyError);
+    }
+    throw bodyError;
   } finally {
     clearTimeout(timer);
+    request.signal.removeEventListener("abort", onAbort);
     reader.releaseLock();
   }
+}
+
+function validateBody(body: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new RequestBodyError(400, "InvalidJson");
+  }
+  const input = parseAnalysisInput(parsed);
+  if (!input) {
+    throw new RequestBodyError(400, "ValidationError");
+  }
+  return JSON.stringify(input);
 }
 
 function clientIdentity(request: Request, secret: string): string {
@@ -96,10 +149,15 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
     }
     const origin = new URL(configuredOrigin || request.url).origin;
     if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") {
-      return failure(403, "ForbiddenOrigin", "This request origin is not allowed");
+      return rejectRequest(request, 403, "ForbiddenOrigin", "This request origin is not allowed");
     }
-    if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-      return failure(415, "UnsupportedMediaType", "Send the request as application/json");
+    const contentType = request.headers.get("content-type")?.trim() ?? "";
+    if (!/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?$/i.test(contentType)) {
+      return rejectRequest(request, 415, "UnsupportedMediaType", "Send the request as UTF-8 application/json");
+    }
+    const encoding = request.headers.get("content-encoding")?.trim().toLowerCase();
+    if (encoding && encoding !== "identity") {
+      return rejectRequest(request, 415, "UnsupportedContentEncoding", "Send an uncompressed JSON request");
     }
 
     const backend = new URL(process.env.BACKEND_API_URL ?? "http://127.0.0.1:4000");
@@ -117,7 +175,7 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
     }
 
     const clientId = clientIdentity(request, secret);
-    const body = await readBody(request);
+    const body = validateBody(await readBody(request));
     const response = await fetch(`${backend.origin}/api/v1/analyses`, {
       method: "POST",
       headers: {
@@ -147,8 +205,8 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
     return new Response(await response.text(), { status: response.status, headers });
   } catch (error) {
     if (error instanceof RequestBodyError) {
-      return failure(error.status, error.code, "The request body could not be accepted");
+      return rejectRequest(request, error.status, error.code, "The request body could not be accepted");
     }
-    return failure(503, "AnalysisUnavailable", "The analysis service is temporarily unavailable");
+    return rejectRequest(request, 503, "AnalysisUnavailable", "The analysis service is temporarily unavailable");
   }
 }
