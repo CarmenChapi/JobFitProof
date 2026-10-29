@@ -36,6 +36,10 @@ Copy the environment file and start the backend on port 4000:
 cp .env.example .env.local
 ```
 
+Set `INTERNAL_API_SECRET` to the same generated secret as the backend and start
+Redis as described in the backend README. The secret must contain 64 lower-case
+hexadecimal characters. Keep it server-only and never prefix it with `NEXT_PUBLIC_`.
+
 Run the development server:
 
 ```bash
@@ -102,7 +106,41 @@ app/api/analyze/route.ts
 ```
 
 That route proxies requests to `BACKEND_API_URL`, which defaults to `http://127.0.0.1:4000`.
+It adds service credentials and a client identifier on the server, replaces any
+visitor-supplied internal headers, and forwards quota responses and `Retry-After`.
+Remote backend connections require HTTPS; redirects are rejected.
+
+## Protected Analysis Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `INTERNAL_API_SECRET` | Shared server-only secret; required in every environment |
+| `BACKEND_API_URL` | Backend origin, without a path or embedded credentials |
+| `APP_ORIGIN` | Exact public frontend origin; required in production |
+| `TRUSTED_CLIENT_IP_HEADER` | Ingress-owned header containing one verified client IP; required in production |
+| `BACKEND_TIMEOUT_MS` | Upstream deadline in milliseconds; defaults to 40000 |
+
+Only configure `TRUSTED_CLIENT_IP_HEADER` after verifying that your hosting provider
+or reverse proxy **overwrites** this header and that visitors cannot bypass that
+proxy. It must contain a single IP address. Arbitrary `X-Forwarded-For` chains are
+rejected. The correct header depends on the eventual hosting setup; no provider is
+assumed. Missing production configuration blocks analysis with `503`.
+
+In local development, leaving the trusted header blank gives all visitors one
+shared loopback quota identity and ignores IP headers supplied by the visitor.
+Leaving `APP_ORIGIN` blank in development uses the request URL's origin. Browser
+POST requests must still carry a matching `Origin` and `application/json` content type.
+
+IPv4-mapped IPv6 addresses share the corresponding IPv4 quota. IPv6 addresses in
+the same /64 share one quota. The normalised address is HMAC-hashed before it leaves
+Next.js. Users on a shared network may share a quota.
+
+The proxy caps request bodies at 512 KiB during streaming and limits body reading
+to five seconds. Responses are marked `no-store`. Quota errors preserve entered
+text and show a localised message; no automatic retries are made by the interface.
 
 ## Notes
 
-The current backend scoring is intentionally simple. It is useful for validating the product flow, not for final hiring or career advice.
+The backend uses AI analysis with a heuristic fallback. Request quotas are enforced
+before either mode runs. They are independent of the OpenAI spending limit configured
+by the project owner. The reports remain a prototype, not final hiring or career advice.

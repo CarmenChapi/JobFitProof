@@ -37,7 +37,10 @@ export const translations = {
       jobPlaceholder: "Pega aquí la descripción de la oferta de empleo.",
       seniority: "Nivel profesional objetivo",
       minWarning: "Necesito al menos 80 caracteres en cada campo para generar un informe.",
-      analysisError: "No se pudo generar el informe. Comprueba que el servidor está funcionando.",
+      analysisError: "El análisis no está disponible temporalmente. Tus textos se conservan; inténtalo más tarde.",
+      analysisBusy: "Hay otros análisis en curso. Espera unos segundos y vuelve a intentarlo.",
+      dailyLimit: "Se ha alcanzado el límite diario de análisis. Vuelve a intentarlo mañana.",
+      rateLimit: (seconds: number) => `Has alcanzado el límite de análisis. Vuelve a intentarlo en ${Math.ceil(seconds / 60)} min.`,
       wordCount: (count: number) => `${count} ${count === 1 ? "palabra" : "palabras"}`,
     },
     report: {
@@ -125,7 +128,10 @@ También se valorará la experiencia orientando a otros desarrolladores o lidera
       jobPlaceholder: "Paste the job advert here.",
       seniority: "Target level",
       minWarning: "I need at least 80 characters in each field to generate a report.",
-      analysisError: "The report could not be generated. Check that the backend is running.",
+      analysisError: "Analysis is temporarily unavailable. Your text is preserved; please try again later.",
+      analysisBusy: "Other analyses are in progress. Please wait a few seconds and try again.",
+      dailyLimit: "The daily analysis limit has been reached. Please try again tomorrow.",
+      rateLimit: (seconds: number) => `You have reached the analysis limit. Please try again in ${Math.ceil(seconds / 60)} min.`,
       wordCount: (count: number) => `${count} ${count === 1 ? "word" : "words"}`,
     },
     report: {

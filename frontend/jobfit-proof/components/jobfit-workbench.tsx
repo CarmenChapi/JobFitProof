@@ -166,6 +166,19 @@ export function JobFitWorkbench() {
         body: JSON.stringify({ cvText, jobText, seniority, language }),
       });
 
+      if (response.status === 429) {
+        const details = await response.json().catch(() => ({}));
+        const retryAfter = Number(response.headers.get("retry-after"));
+        setAnalysisError(
+          details.error === "AnalysisBusy"
+            ? t.form.analysisBusy
+            : ["DailyLimitExceeded", "GlobalLimitExceeded"].includes(details.error)
+              ? t.form.dailyLimit
+              : t.form.rateLimit(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60),
+        );
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(`Analysis request failed with status ${response.status}`);
       }
@@ -408,7 +421,7 @@ export function JobFitWorkbench() {
             </div>
 
             {analysisError ? (
-              <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:px-5">
+              <div role="alert" className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:px-5">
                 {analysisError}
               </div>
             ) : null}
