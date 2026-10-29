@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import ipaddr from "ipaddr.js";
 
 import { parseAnalysisInput } from "../analysis-input";
+import { sanitiseUpstreamError, upstreamResponseHeaders } from "./upstream-errors";
 
 const maxBodyBytes = 512 * 1024;
 
@@ -189,19 +190,11 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]),
     });
 
-    if (response.status === 401 || response.status === 403 || response.status >= 500) {
-      await response.body?.cancel();
-      return failure(503, "AnalysisUnavailable", "The analysis service is temporarily unavailable");
+    if (response.status !== 200) {
+      return await sanitiseUpstreamError(response);
     }
 
-    const headers = new Headers({
-      "content-type": "application/json",
-      "cache-control": "no-store",
-    });
-    const retryAfter = response.headers.get("retry-after");
-    if (retryAfter && /^\d+$/.test(retryAfter)) {
-      headers.set("retry-after", retryAfter);
-    }
+    const headers = upstreamResponseHeaders(response);
     return new Response(await response.text(), { status: response.status, headers });
   } catch (error) {
     if (error instanceof RequestBodyError) {

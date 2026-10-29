@@ -147,8 +147,21 @@ Provider spending limits must be configured separately in OpenAI by the project 
 
 ## Security checks
 
+API errors use controlled public codes and messages in every environment. The
+global handler never returns exception names, stack traces, parser diagnostics
+or dependency error messages. Missing and malformed URLs receive the same
+protection; unknown routes and query strings are not echoed back. Validation
+issues identify only supported fields and use fixed instructions.
+
+Each request receives a server-generated UUID in `X-Request-Id`, also included
+in errors from the global handler. Client-supplied request IDs are ignored.
+Unexpected exceptions are logged on the server with that reference (`reqId`);
+parser and other client errors are logged without their raw error messages.
+Error responses use `Cache-Control: no-store`.
+
 `npm test` exercises authentication, validation, fail-closed behaviour, forwarding,
-IP normalisation, body limits, and quota error propagation without calling OpenAI.
+IP normalisation, body limits, error sanitisation and quota error propagation
+without calling OpenAI.
 
 To additionally exercise atomic Lua reservations against a disposable Redis instance:
 

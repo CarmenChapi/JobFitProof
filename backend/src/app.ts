@@ -1,14 +1,19 @@
-import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
+import Fastify, { type FastifyInstance } from "fastify";
 
 import { env } from "./config/env.js";
 import type { AnalysisDependencies } from "./modules/analyses/analysis.controller.js";
 import { RedisAnalysisQuotaStore } from "./modules/analyses/analysis.quota.js";
 import { registerCors } from "./plugins/cors.js";
+import { handleApiError, sendPublicError } from "./plugins/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
 import { v1Routes } from "./routes/v1/index.js";
 
 export function buildApp(options: Partial<AnalysisDependencies> = {}): FastifyInstance {
   const app = Fastify({
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+    frameworkErrors: handleApiError,
     logger: {
       level: env.NODE_ENV === "test" ? "silent" : "info",
       redact: ["req.headers.authorization", "req.headers[\"x-jobfit-client\"]"]
@@ -25,25 +30,15 @@ export function buildApp(options: Partial<AnalysisDependencies> = {}): FastifyIn
   });
 
   app.addHook("onClose", async () => quotaStore.close());
+  app.addHook("onRequest", async (request, reply) => {
+    reply.header("x-request-id", request.id);
+  });
   app.register(registerCors);
   app.register(healthRoutes);
   app.register(v1Routes, { prefix: "/api/v1", quotaStore, analyse: options.analyse });
 
-  app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      error: "Not Found",
-      message: `Route ${request.method} ${request.url} was not found`
-    });
-  });
-
-  app.setErrorHandler((error: FastifyError, request, reply) => {
-    request.log.error(error);
-
-    reply.status(error.statusCode ?? 500).send({
-      error: error.name,
-      message: error.message
-    });
-  });
+  app.setNotFoundHandler((_request, reply) => sendPublicError(reply, 404));
+  app.setErrorHandler(handleApiError);
 
   return app;
 }

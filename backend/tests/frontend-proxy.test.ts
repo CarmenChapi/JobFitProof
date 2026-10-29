@@ -286,14 +286,16 @@ describe("Next.js analysis proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("preserves quota errors and Retry-After", async () => {
-    fetchMock.mockResolvedValue(Response.json({ error: "DailyLimitExceeded" }, {
+  it.each(["RateLimitExceeded", "DailyLimitExceeded", "GlobalLimitExceeded", "AnalysisBusy"])("preserves %s and Retry-After without upstream details", async (error) => {
+    fetchMock.mockResolvedValue(Response.json({
+      error, message: "private backend details", stack: "/srv/secret.ts", credentials: "synthetic-secret", retryAfter: 999
+    }, {
       status: 429, headers: { "retry-after": "1800" }
     }));
     const response = await POST(request());
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("1800");
-    expect(await response.json()).toEqual({ error: "DailyLimitExceeded" });
+    expect(await response.json()).toEqual({ error, message: "The analysis limit has been reached" });
   });
 
   it.each([401, 403, 500, 503])("hides upstream error details (%s)", async (status) => {
@@ -301,6 +303,86 @@ describe("Next.js analysis proxy", () => {
     const response = await POST(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("private backend details");
+  });
+
+  it.each([400, 408, 413, 415])("rebuilds upstream input errors using public messages (%s)", async (status) => {
+    fetchMock.mockResolvedValue(Response.json({
+      error: "PrivateInternalError", message: "private backend details", stack: "/srv/secret.ts", issues: ["synthetic-secret"]
+    }, { status }));
+    const response = await POST(request());
+    expect(response.status).toBe(status);
+    const body = await response.json();
+    expect(Object.keys(body).sort()).toEqual(["error", "message"]);
+    expect(JSON.stringify(body)).not.toMatch(/PrivateInternalError|private backend details|secret/);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it.each([204, 302, 404, 422])("masks unexpected upstream statuses (%s)", async (status) => {
+    fetchMock.mockResolvedValue(new Response(status === 204 ? null : "private backend details", { status }));
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "AnalysisUnavailable", message: "The analysis service is temporarily unavailable" });
+  });
+
+  it.each(["not JSON: private backend details", "null", "[]", '{"error":"PrivateInternalError"}'])("uses a safe fallback for malformed quota errors (%#)", async (body) => {
+    fetchMock.mockResolvedValue(new Response(body, { status: 429 }));
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "RateLimitExceeded", message: "The analysis limit has been reached" });
+  });
+
+  it.each(["private backend details", "-1", "1e3", "999999999999999999999"])("does not forward an invalid Retry-After (%s)", async (value) => {
+    fetchMock.mockResolvedValue(Response.json({ error: "RateLimitExceeded" }, { status: 429, headers: { "retry-after": value } }));
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBeNull();
+  });
+
+  it("bounds quota error bodies and cancels oversized responses", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode("x".repeat(4097))); }, cancel
+    });
+    fetchMock.mockResolvedValue(new Response(stream, { status: 429 }));
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect((await response.json()).error).toBe("RateLimitExceeded");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("bounds the wait for a quota error body even when cancellation never settles", async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    fetchMock.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 429 }));
+    const pending = POST(request());
+    await vi.advanceTimersByTimeAsync(1001);
+    const response = await pending;
+    expect(response.status).toBe(429);
+    expect((await response.json()).error).toBe("RateLimitExceeded");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("discards internal error bodies without reading them or waiting for cancellation", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    fetchMock.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 500 }));
+    expect((await POST(request())).status).toBe(503);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it.each([200, 400, 429, 503])("preserves only a valid backend request reference (%s)", async (status) => {
+    const requestId = "b2751e76-0986-4dab-a739-9615180b98aa";
+    fetchMock.mockResolvedValue(Response.json({ error: "DailyLimitExceeded" }, {
+      status, headers: { "x-request-id": requestId, "x-private-debug": "synthetic-secret" }
+    }));
+    const response = await POST(request());
+    expect(response.headers.get("x-request-id")).toBe(requestId);
+    expect(response.headers.get("x-private-debug")).toBeNull();
+  });
+
+  it("does not forward arbitrary text as a backend request reference", async () => {
+    fetchMock.mockResolvedValue(Response.json({}, { status: 500, headers: { "x-request-id": "private backend details" } }));
+    expect((await POST(request())).headers.get("x-request-id")).toBeNull();
   });
 
   it("refuses to send the shared secret over remote HTTP", async () => {
@@ -333,6 +415,34 @@ describe("Next.js analysis proxy", () => {
       expect(response.status).toBe(200);
       expect((await response.json()).source).toBe("heuristic");
       expect(quotaStore.acquire).toHaveBeenCalledWith(forwardedIdentity());
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps a real backend failure private while preserving its diagnostic reference", async () => {
+    const quotaStore = createQuotaStore();
+    const analyse = vi.fn().mockRejectedValue(new Error("synthetic-secret /srv/private/service.ts"));
+    const app = buildApp({ quotaStore, analyse });
+    let backendRequestId: string | undefined;
+    fetchMock.mockImplementation(async (_url, options) => {
+      const upstream = await app.inject({
+        method: "POST", url: "/api/v1/analyses",
+        headers: Object.fromEntries(new Headers(options!.headers)), payload: options!.body as string
+      });
+      backendRequestId = String(upstream.headers["x-request-id"]);
+      return new Response(upstream.body, {
+        status: upstream.statusCode, headers: { "x-request-id": backendRequestId }
+      });
+    });
+    try {
+      const response = await POST(request());
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: "AnalysisUnavailable", message: "The analysis service is temporarily unavailable"
+      });
+      expect(response.headers.get("x-request-id")).toBe(backendRequestId);
+      expect(quotaStore.release).toHaveBeenCalledWith("test-reservation");
     } finally {
       await app.close();
     }

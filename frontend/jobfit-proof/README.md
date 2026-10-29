@@ -181,6 +181,14 @@ show a localised message; no automatic retries are made by the interface. These
 application checks complement the hosting provider's connection and traffic limits,
 which will be configured when deployment is chosen.
 
+Upstream error bodies are never forwarded verbatim. Input errors use fixed public
+messages; other failures become `503 AnalysisUnavailable`. For `429` responses,
+only the four recognised quota codes and a numeric `Retry-After` header are retained.
+Reading a quota error body is limited to 4 KiB and one second; malformed, oversized
+or stalled bodies fall back to `RateLimitExceeded` without revealing their contents.
+Only a valid UUID from the backend's `X-Request-Id` header is forwarded, so a failure
+can be matched to the backend log without exposing exception details.
+
 ## Notes
 
 The backend uses AI analysis with a heuristic fallback. Request quotas are enforced

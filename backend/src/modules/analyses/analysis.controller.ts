@@ -9,6 +9,13 @@ export type AnalysisDependencies = {
   analyse?: typeof createAnalysis;
 };
 
+const inputMessages = new Map([
+  ["cvText", "Use between 80 and 50,000 characters for the CV"],
+  ["jobText", "Use between 80 and 50,000 characters for the job advert"],
+  ["seniority", "Choose junior, mid or senior"],
+  ["language", "Choose es or en"]
+]);
+
 export function createAnalysisController({ quotaStore, analyse = createAnalysis }: AnalysisDependencies) {
   return async function analyseRequest(request: FastifyRequest, reply: FastifyReply) {
     const result = createAnalysisSchema.safeParse(request.body);
@@ -17,10 +24,13 @@ export function createAnalysisController({ quotaStore, analyse = createAnalysis 
       return reply.status(400).send({
         error: "ValidationError",
         message: "Invalid analysis input",
-        issues: result.error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          message: issue.message
-        }))
+        issues: result.error.issues.map((issue) => {
+          const field = typeof issue.path[0] === "string" ? issue.path[0] : "";
+          return {
+            path: inputMessages.has(field) ? field : "",
+            message: inputMessages.get(field) ?? "Provide only the supported analysis fields"
+          };
+        })
       });
     }
 
