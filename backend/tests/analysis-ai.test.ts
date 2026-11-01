@@ -9,8 +9,9 @@ import { createAnalysis } from "../src/modules/analyses/analysis.service.js";
 import { sampleInput } from "./helpers.js";
 
 const requirement = {
-  id: "english", label: "English B2", category: "required", status: "unknown", evidence: "English is not mentioned in the CV.",
-  evidenceSource: "unknown", clarificationId: null, question: "What is your English level?", weight: 10
+  id: "english", label: "English B2", kind: "evidence", category: "required", status: "unknown", evidence: "English is not mentioned in the CV.",
+  evidenceSource: "unknown", clarificationId: null, question: "What is your English level?", weight: 10,
+  cvAssessability: "partially", cvAssessmentReason: "The CV does not establish the requested level.", clarificationMaterial: true
 };
 const input = { ...sampleInput, jobText: `${sampleInput.jobText} English B2 is required.` };
 const answer = { requirementId: "english", requirement: "English B2", response: "yes" as const, details: "C1; I lead weekly client meetings in English." };
@@ -64,6 +65,55 @@ describe("AI clarification reports", () => {
     const report = await createAiAnalysis({ ...input, clarifications: [] });
     expect(report.questions).toEqual([]);
     expect(report.requirements[0].status).toBe("unknown");
+  });
+
+  it("overrides an inferred match for a requirement the CV cannot establish", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+      ...requirement, id: "travel", label: "Willingness to travel", cvAssessability: "no", status: "si", evidenceSource: "cv",
+      evidence: "The candidate has worked abroad.", cvAssessmentReason: "Past work abroad cannot establish current willingness to travel.",
+      clarificationMaterial: false, question: "Are you willing to travel for this role?"
+    }] } });
+    const report = await createAiAnalysis(input);
+    expect(report.requirements[0]).toMatchObject({ status: "unknown", evidenceSource: "unknown", cvAssessability: "no" });
+    expect(report.questions[0]).toMatchObject({ requirementId: "travel", reason: expect.stringContaining("direct confirmation") });
+    expect(report.score).toBe(0);
+    expect(report.gaps).toEqual([]);
+  });
+
+  it("does not promote partially assessable CV signals to a full match", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+      ...requirement, status: "si", evidenceSource: "cv", evidence: "Worked in an international team."
+    }] } });
+    const report = await createAiAnalysis(input);
+    expect(report.requirements[0].status).toBe("parcial");
+    expect(report.questions).toHaveLength(1);
+    expect(report.score).toBe(50);
+  });
+
+  it("evaluates a direct answer to a requirement that cannot be determined from the CV", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+      ...requirement, id: "travel", label: "Willingness to travel", cvAssessability: "no", status: "si", evidenceSource: "user",
+      clarificationId: "travel", evidence: "The candidate confirmed willingness to travel twice a month."
+    }] } });
+    const report = await createAiAnalysis({ ...input, clarifications: [{
+      requirementId: "travel", requirement: "Willingness to travel", kind: "condition", response: "yes", details: ""
+    }] });
+    expect(report.requirements[0]).toMatchObject({ status: "si", evidenceSource: "user", cvAssessability: "no" });
+    expect(report.questions).toEqual([]);
+    expect(report.score).toBe(0);
+    expect(report.strengths).toEqual([]);
+    expect(report.cvImprovements).toEqual([]);
+  });
+
+  it("does not accept an empty skill affirmation disguised as a condition", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+      ...requirement, status: "si", evidenceSource: "user", clarificationId: "english", evidence: "The candidate said yes."
+    }] } });
+    const report = await createAiAnalysis({ ...input, clarifications: [{ ...answer, kind: "condition", details: "" }] });
+    expect(report.requirements[0]).toMatchObject({ kind: "evidence", status: "unknown", evidenceSource: "unknown" });
+    expect(report.score).toBe(0);
+    expect(report.cvImprovements).toEqual([]);
+    expect(report.unassessedClarifications).toEqual(["English B2"]);
   });
 
   it("retains answers and provenance if AI fails during the final review", async () => {

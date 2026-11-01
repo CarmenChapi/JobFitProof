@@ -47,6 +47,12 @@ function forwardedIdentity(index = 0) {
 }
 
 describe("Next.js analysis proxy", () => {
+  it("accepts simple conditions and preserves their kind without requiring evidence details", async () => {
+    const clarifications = [{ requirementId: "hours", requirement: "Working hours", kind: "condition", response: "yes", details: "" }];
+    expect((await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })))).status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string).clarifications).toEqual(clarifications);
+  });
+
   it("forwards bounded clarification answers separately from the unchanged CV", async () => {
     const clarifications = [{ requirementId: "english", requirement: "English B2", response: "yes", details: "  B2; daily meetings.  " }];
     const response = await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })));
@@ -60,6 +66,16 @@ describe("Next.js analysis proxy", () => {
     const clarifications = [{ requirementId: "english", requirement: "English B2", response: "yes", details: "x".repeat(1001) }];
     expect((await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })))).status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards all twelve clarification answers in one request", async () => {
+    const clarifications = Array.from({ length: 12 }, (_, index) => ({
+      requirementId: `requirement-${index}`, requirement: `Requirement ${index}`, response: "yes", details: "A concrete example."
+    }));
+    const response = await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })));
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string).clarifications).toEqual(clarifications);
   });
 
   it("adds its own credentials and replaces visitor-supplied internal headers", async () => {

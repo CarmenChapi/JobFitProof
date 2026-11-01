@@ -23,7 +23,8 @@ describe("clarifying missing evidence", () => {
 
   it("keeps interest separate from professional experience", () => {
     const report = createHeuristicAnalysis({ ...input, cvText: `${input.cvText} I have an interest in AI and follow online courses.` });
-    expect(report.requirements.find((item) => item.id === "ai_interest")?.status).toBe("si");
+    expect(report.requirements.find((item) => item.id === "ai_interest")).toMatchObject({ status: "unknown", cvAssessability: "no" });
+    expect(report.questions.some((item) => item.requirementId === "ai_interest")).toBe(true);
     expect(report.requirements.find((item) => item.id === "ai_experience")?.status).toBe("unknown");
   });
 
@@ -82,11 +83,12 @@ describe("clarifying missing evidence", () => {
     expect(quotaStore.acquire).not.toHaveBeenCalled();
   });
 
-  it("limits questions and prioritises essential requirements before optional ones", () => {
+  it("keeps every material question while prioritising essential requirements", () => {
     const requirements: AssessedRequirement[] = [0, 1, 2, 3, 4].map((id) => ({
-      id: String(id), label: `Requirement ${id}`, category: id === 4 ? "required" : "preferred", categoryLabel: "required",
-      status: "unknown", evidence: "Not mentioned", evidenceSource: "unknown", weight: id + 1
+      id: String(id), label: `Requirement ${id}`, kind: "evidence", category: id === 4 ? "required" : "preferred", categoryLabel: "required",
+      status: "unknown", evidence: "Not mentioned", evidenceSource: "unknown", weight: id + 1,
+      cvAssessability: "partially", cvAssessmentReason: "Relevant evidence is missing.", clarificationMaterial: true
     }));
-    expect(buildReport(sampleInput, "Developer", requirements, "ai").questions.map((item) => item.requirementId)).toEqual(["4", "3", "2"]);
+    expect(buildReport(sampleInput, "Developer", requirements, "ai").questions.map((item) => item.requirementId)).toEqual(["4", "3", "2", "1", "0"]);
   });
 });

@@ -6,6 +6,7 @@ import type {
   RequirementStatus
 } from "./analysis.schema.js";
 import { buildReport, type AssessedRequirement } from "./analysis.report.js";
+import { isPracticalCondition } from "./analysis.conditions.js";
 
 type RequirementId =
   | "react"
@@ -233,11 +234,20 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
     const result: AssessedRequirement = {
       id: requirement.id,
       label,
+      kind: "evidence",
       category: requirement.category,
       categoryLabel: copy.categories[requirement.category],
       status,
       evidence: copy.evidence[status](label),
       evidenceSource: status === "unknown" ? "unknown" : "cv",
+      cvAssessability: requirement.id === "ai_interest" ? "no" : status === "si" ? "yes" : "partially",
+      cvAssessmentReason: requirement.id === "ai_interest"
+        ? input.language === "es" ? "Tu interés actual por la IA necesita confirmación, aunque el CV mencione actividades relacionadas." : "Your current interest in AI needs confirmation, even if the CV mentions related activities."
+        : status === "si"
+          ? input.language === "es" ? "El CV menciona directamente este requisito." : "The CV explicitly mentions this requirement."
+          : input.language === "es" ? "La revisión básica no encuentra información suficiente para completar esta valoración." : "The basic review cannot find enough information to complete this assessment.",
+      // The basic matcher cannot reliably dismiss the significance of an explicit job requirement.
+      clarificationMaterial: true,
       weight: requirement.weight,
       question: requirement.id === "english"
         ? input.language === "es" ? "¿Cuál es tu nivel de inglés y en qué situaciones lo has utilizado?" : "What is your English level, and in which situations have you used it?"
@@ -256,5 +266,22 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
     }
     return result;
   });
+  const conditions = [...new Set(input.jobText.split(/\n+|(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚ])/u)
+    .map((line) => line.trim()).filter((line) => line.length <= 160 && isPracticalCondition(line)))];
+  for (const [index, condition] of conditions.entries()) {
+    if (requirements.length >= 12) break;
+    const id = `condition-${index}`;
+    const label = condition;
+    const answer = input.clarifications?.find((answer) => answer.requirementId === id || normalizeText(answer.requirement) === normalizeText(label));
+    const category = /\b(?:optional|preferred|valorable|opcional)\b/i.test(condition) ? "preferred" : "required";
+    requirements.push({
+      id, label, kind: "condition", category, categoryLabel: copy.categories[category],
+      status: "unknown", evidenceSource: "unknown", evidence: condition,
+      cvAssessability: "no", cvAssessmentReason: input.language === "es"
+        ? "Esta condición de la oferta necesita tu confirmación."
+        : "This job condition needs your confirmation.",
+      clarificationMaterial: true, weight: 1, answerId: answer?.requirementId
+    });
+  }
   return buildReport(input, inferRoleTitle(input.jobText, copy), requirements, "heuristic");
 }

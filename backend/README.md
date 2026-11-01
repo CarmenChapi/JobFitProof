@@ -90,9 +90,12 @@ curl -X POST http://localhost:4000/api/v1/analyses \
 
 ### Optional clarification round
 
-The first response includes up to three `questions`, prioritising required skills
-whose evidence is missing or partial. Each question contains `requirementId`,
-`requirement` and `question`. To update the report, post the same input with an
+The first response includes a question for every requirement that needs clarification,
+without truncating the list to three. The report supports up to twelve assessed
+requirements, so the input accepts up to twelve answers in a single request.
+Each question contains `requirementId`, `requirement`, `kind`, `question` and `reason`.
+Direct candidate confirmations come first, followed by essential requirements and
+weight. To update the report, post the same input with an
 optional `clarifications` array:
 
 ```json
@@ -106,11 +109,24 @@ optional `clarifications` array:
 }
 ```
 
-Answers accept `yes`, `partly` or `no`; positive and partial answers require details.
-At most three unique IDs are accepted. IDs, requirement labels and details are
+Answers accept `yes`, `partly` or `no`. For `kind: "evidence"` (the default when
+omitted), positive and partial answers require details. For `kind: "condition"`,
+`yes` and `no` accept an empty `details` string; `partly` is shown as **Depends**
+and requires a short explanation. Keep sending `details`, even when empty.
+At most twelve unique IDs are accepted. IDs, requirement labels and details are
 trimmed and limited to 80, 160 and 1,000 characters respectively. Both the Next.js
 proxy and backend reject extra fields and invalid answers before reserving quota.
 Answers are untrusted data and never instructions or proof of the requested level.
+The answer's `kind` is a UI hint. The service independently classifies the actual
+requirement; marking a skill answer as a condition cannot establish that skill
+without evidence. The report discloses unsupported answers as unassessed.
+
+Practical conditions include working hours, timezone overlap, meeting times, travel,
+relocation, office attendance and start dates. They require a direct confirmation,
+not an example or a proficiency level. The server recognises common condition labels
+as well as the model's semantic classification. A country in the CV never confirms
+that a work schedule is acceptable. Conditions are grouped separately in the UI;
+a **No** or **Depends** remains visible as a potential obstacle to accepting the role.
 
 Submitting answers performs another quota-protected analysis and can call OpenAI
 once more. It does not bypass daily budgets or concurrency limits. An empty array
@@ -118,17 +134,49 @@ finishes without more questions. The UI skips all questions using its existing
 draft, with no second request. There is only one clarification round in the UI;
 answers stay in browser memory and are cleared when the input or language changes.
 
+Each requirement independently records whether it can reasonably be determined
+from the supplied CV (`cvAssessability`), why (`cvAssessmentReason`), and whether
+clarifying uncertainty could materially affect the assessment (`clarificationMaterial`):
+
+- `yes`: evaluate the CV evidence without a redundant question.
+- `partially`: ask if clarification is material. Essential requirements are always
+  material; meaningful differentiators may be material too. Minor optional details
+  need not prompt a question. Fully missing evidence cannot be marked `yes`.
+- `no`: ask the candidate regardless of weight or inferred fulfilment. The server
+  keeps these requirements `unknown` until a matching candidate answer is supplied.
+
+This classification remains about the original CV after answers are submitted;
+fulfilment status and evidence source are separate. Current willingness to travel,
+availability and motivation need direct confirmation. A related project alone does
+not establish current interest in AI. The basic matcher conservatively treats
+uncertain, explicitly requested requirements as material. Skipped confirmations
+remain unknown in the final report. All questions are optional, and sending all
+answers together costs one additional quota-protected analysis, not one per question.
+The server also recognises common English and Spanish requirement labels for
+current interest, motivation, travel willingness, relocation and starting dates,
+and requires direct confirmation even if the model labels those CV-assessable.
+Other requirement wording still relies on the model's semantic classification.
+
 Requirement statuses are `si`, `parcial`, `no` and `unknown`. Missing information is
-`unknown`; only explicit non-fulfilment appears in `gaps`. `evidenceSource` identifies
+`unknown`; only explicit non-fulfilment of evidence requirements appears in `gaps`. `evidenceSource` identifies
 `cv`, `user` or `unknown`. Answers never modify the CV. `cvImprovements` lists
 self-reported information that could be added. Interest in AI is evaluated
 separately from professional AI experience.
 
-The score is weighted evidence coverage (full weight for `si`, half for `parcial`,
-zero for `no` and `unknown`), not a prediction of hiring success. Unknowns remain
+The score is weighted skill and experience evidence coverage (full weight for `si`,
+half for `parcial`, zero for `no` and `unknown`), not a prediction of hiring success.
+Conditions are excluded from the score, strengths, skill gaps and CV additions.
+The API keeps both kinds in `requirements` with their `kind`; the downloaded report
+separates `requirements` and `conditions`. With no evidence requirements the API
+uses score 0 as an empty aggregate; the UI shows a dash and the export uses `null`.
+Unknowns remain
 visible separately. The heuristic fallback only recognises its known requirements,
 does not invent requirements for unrelated adverts, and conservatively treats
-positive answers as partial evidence because it cannot evaluate levels or context.
+positive skill answers as partial evidence because it cannot evaluate levels or context.
+It can also recognise explicit practical-condition clauses in the advert and accept
+simple confirmations of them; conditions are never added solely from an answer label.
+This basic extraction only accepts complete clauses within the 160-character
+requirement-label limit; it never truncates a condition and silently drops qualifiers.
 `unassessedClarifications` identifies answers that could not be matched to an
 assessed requirement; the UI and export disclose these without silently crediting them.
 
@@ -186,7 +234,10 @@ see its README. Do not allow clients to bypass the ingress that sets that header
 The frontend requires HTTPS for backend connections outside loopback.
 
 Set `BACKEND_TIMEOUT_MS` on the frontend above `OPENAI_TIMEOUT_MS` plus the Redis
-connection/command allowance. Defaults are 40 and 30 seconds respectively.
+connection/command allowance. Defaults are 75 and 60 seconds respectively, allowing
+time for the full set of clarification questions. The model output remains bounded
+at 6,000 tokens. Existing local configurations using the previous 40/30-second
+defaults should be updated together; restart both services after changing them.
 Provider spending limits must be configured separately in OpenAI by the project owner.
 
 ## Security checks
