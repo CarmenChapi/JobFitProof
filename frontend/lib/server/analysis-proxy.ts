@@ -170,7 +170,7 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
       throw new Error("The backend must use HTTPS or loopback HTTP");
     }
 
-    const timeout = Number(process.env.BACKEND_TIMEOUT_MS || "40000");
+    const timeout = Number(process.env.BACKEND_TIMEOUT_MS || "75000");
     if (!Number.isInteger(timeout) || timeout < 1_000 || timeout > 180_000) {
       throw new Error("Invalid backend timeout");
     }

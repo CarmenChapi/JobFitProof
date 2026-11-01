@@ -47,6 +47,21 @@ function forwardedIdentity(index = 0) {
 }
 
 describe("Next.js analysis proxy", () => {
+  it("forwards bounded clarification answers separately from the unchanged CV", async () => {
+    const clarifications = [{ requirementId: "english", requirement: "English B2", response: "yes", details: "  B2; daily meetings.  " }];
+    const response = await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({
+      ...sampleInput, clarifications: [{ ...clarifications[0], details: "B2; daily meetings." }]
+    });
+  });
+
+  it("rejects oversized clarification answers before contacting the backend", async () => {
+    const clarifications = [{ requirementId: "english", requirement: "English B2", response: "yes", details: "x".repeat(1001) }];
+    expect((await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })))).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("adds its own credentials and replaces visitor-supplied internal headers", async () => {
     const response = await POST(request({
       authorization: "Bearer forged",

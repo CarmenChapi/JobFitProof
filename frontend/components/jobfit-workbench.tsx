@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   BriefcaseBusiness,
@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Download,
   FileText,
+  CircleHelp,
   Languages,
   Play,
   RefreshCcw,
@@ -19,40 +20,18 @@ import {
 
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
-import { parseAnalysisInput } from "@/lib/analysis-input";
+import { ClarificationForm, type AnswerDrafts } from "@/components/clarification-form";
+import { parseAnalysisInput, type ClarificationAnswer } from "@/lib/analysis-input";
+import type { Report, RequirementStatus } from "@/lib/analysis-report";
 import { languages, translations } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type Seniority = "junior" | "mid" | "senior";
-type RequirementStatus = "si" | "parcial" | "no";
-type RequirementCategory = keyof (typeof translations)["es"]["categories"];
-
-type ReportRequirement = {
-  id: string;
-  label: string;
-  category: RequirementCategory;
-  categoryLabel: string;
-  status: RequirementStatus;
-  evidence: string;
-  weight: number;
-};
 
 type AnalysisInput = {
   cvText: string;
   jobText: string;
   seniority: Seniority;
-};
-
-type Report = {
-  generatedAt: string;
-  language: "es" | "en";
-  seniority: Seniority;
-  roleTitle: string;
-  score: number;
-  summary: string;
-  strengths: string[];
-  gaps: string[];
-  requirements: ReportRequirement[];
 };
 
 const seniorityLabels: Record<Seniority, string> = {
@@ -76,6 +55,10 @@ const statusStyles: Record<
   no: {
     icon: XCircle,
     className: "border-rose-200 bg-rose-50 text-rose-700",
+  },
+  unknown: {
+    icon: CircleHelp,
+    className: "border-slate-200 bg-slate-50 text-slate-700",
   },
 };
 
@@ -115,6 +98,21 @@ export function JobFitWorkbench() {
   const [report, setReport] = useState<Report | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [draftReport, setDraftReport] = useState<Report | null>(null);
+  const [answers, setAnswers] = useState<AnswerDrafts>({});
+  const requestRef = useRef<AbortController | null>(null);
+
+  const invalidateAnalysis = useCallback(() => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setIsAnalyzing(false);
+    setReport(null);
+    setDraftReport(null);
+    setAnswers({});
+    setAnalysisError(null);
+  }, []);
+
+  useEffect(() => () => { requestRef.current?.abort(); }, []);
 
   useEffect(() => {
     const previousLanguage = previousLanguageRef.current;
@@ -135,10 +133,9 @@ export function JobFitWorkbench() {
       cvText: current.cvText === previousCopy.samples.cv ? nextCopy.samples.cv : current.cvText,
       jobText: current.jobText === previousCopy.samples.job ? nextCopy.samples.job : current.jobText,
     }));
-    setReport(null);
-    setAnalysisError(null);
+    invalidateAnalysis();
     previousLanguageRef.current = language;
-  }, [language]);
+  }, [language, invalidateAnalysis]);
 
   const formStats = useMemo(
     () => ({
@@ -149,14 +146,26 @@ export function JobFitWorkbench() {
   );
 
   const canAnalyze = parseAnalysisInput({ cvText, jobText, seniority, language }) !== null;
+  const evidenceRequirements = report?.requirements.filter((requirement) => requirement.kind !== "condition") ?? [];
+  const practicalConditions = report?.requirements.filter((requirement) => requirement.kind === "condition") ?? [];
   const gapText =
     report && report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
 
-  async function handleAnalyze() {
-    if (!canAnalyze) {
+  async function handleAnalyze(clarifications?: ClarificationAnswer[]) {
+    const input = parseAnalysisInput({ cvText, jobText, seniority, language, ...(clarifications ? { clarifications } : {}) });
+    if (!input) {
+      setAnalysisError(t.form.invalidInput);
       return;
     }
 
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    if (!clarifications) {
+      setReport(null);
+      setDraftReport(null);
+      setAnswers({});
+    }
     setIsAnalyzing(true);
     setAnalysisError(null);
 
@@ -164,11 +173,14 @@ export function JobFitWorkbench() {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cvText, jobText, seniority, language }),
+        body: JSON.stringify(input),
+        signal: controller.signal,
       });
+      if (requestRef.current !== controller) return;
 
       if (response.status === 429) {
         const details = await response.json().catch(() => ({}));
+        if (requestRef.current !== controller) return;
         const retryAfter = Number(response.headers.get("retry-after"));
         setAnalysisError(
           details.error === "AnalysisBusy"
@@ -195,16 +207,34 @@ export function JobFitWorkbench() {
       }
 
       const nextReport = (await response.json()) as Report;
+      if (requestRef.current !== controller) return;
       setAnalysisInput({ cvText, jobText, seniority });
-      setReport(nextReport);
+      if (!clarifications && nextReport.questions.length) {
+        setDraftReport(nextReport);
+      } else {
+        setReport(nextReport);
+        setDraftReport(null);
+      }
     } catch {
-      setAnalysisError(t.form.analysisError);
+      if (requestRef.current === controller) setAnalysisError(t.form.analysisError);
     } finally {
-      setIsAnalyzing(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setIsAnalyzing(false);
+      }
     }
   }
 
+  function handleSkipQuestions() {
+    if (!draftReport || isAnalyzing) return;
+    setReport({ ...draftReport, questions: [] });
+    setDraftReport(null);
+    setAnswers({});
+    setAnalysisError(null);
+  }
+
   function handleReset() {
+    invalidateAnalysis();
     setCvText("");
     setJobText("");
     setSeniority("mid");
@@ -213,6 +243,7 @@ export function JobFitWorkbench() {
   }
 
   function handleLoadSample() {
+    invalidateAnalysis();
     const nextAnalysisInput = {
       cvText: t.samples.cv,
       jobText: t.samples.job,
@@ -235,21 +266,27 @@ export function JobFitWorkbench() {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
+    const exportRequirement = ({ label, kind, categoryLabel, status, evidence, evidenceSource, cvAssessability, cvAssessmentReason, clarificationMaterial }: Report["requirements"][number]) => ({
+      label, kind, category: categoryLabel,
+      status: kind === "condition" ? t.conditionStatus[status] : t.status[status],
+      evidence, evidenceSource, evidenceSourceLabel: t.provenance[evidenceSource],
+      cvAssessability, cvAssessmentReason, clarificationMaterial,
+    });
     const payload = {
       generatedAt: new Date().toISOString(),
       language,
       seniority: seniorityLabels[analysisInput.seniority],
-      score: report.score,
+      score: evidenceRequirements.length ? report.score : null,
+      scoreExplanation: t.report.scoreHelp,
+      source: report.source,
       roleTitle: report.roleTitle,
       summary: report.summary,
       strengths: report.strengths,
       gaps: report.gaps,
-      requirements: report.requirements.map(({ label, categoryLabel, status, evidence }) => ({
-        label,
-        category: categoryLabel,
-        status: t.status[status],
-        evidence,
-      })),
+      cvImprovements: report.cvImprovements,
+      unassessedClarifications: report.unassessedClarifications,
+      requirements: evidenceRequirements.map(exportRequirement),
+      conditions: practicalConditions.map(exportRequirement),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -320,7 +357,7 @@ export function JobFitWorkbench() {
             </Button>
             <Button
               className="h-9 flex-1 rounded-[8px] bg-slate-950 text-white hover:bg-slate-800 sm:flex-none"
-              onClick={handleAnalyze}
+              onClick={() => void handleAnalyze()}
               disabled={!canAnalyze || isAnalyzing}
             >
               {isAnalyzing ? (
@@ -361,7 +398,7 @@ export function JobFitWorkbench() {
                   id="cv-text"
                   className="min-h-48 w-full resize-y rounded-[8px] border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-teal-600 focus:ring-3 focus:ring-teal-600/15"
                   value={cvText}
-                  onChange={(event) => setCvText(event.target.value)}
+                  onChange={(event) => { invalidateAnalysis(); setCvText(event.target.value); }}
                   placeholder={t.form.cvPlaceholder}
                 />
               </div>
@@ -377,7 +414,7 @@ export function JobFitWorkbench() {
                   id="job-text"
                   className="min-h-44 w-full resize-y rounded-[8px] border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-teal-600 focus:ring-3 focus:ring-teal-600/15"
                   value={jobText}
-                  onChange={(event) => setJobText(event.target.value)}
+                  onChange={(event) => { invalidateAnalysis(); setJobText(event.target.value); }}
                   placeholder={t.form.jobPlaceholder}
                 />
               </div>
@@ -393,7 +430,7 @@ export function JobFitWorkbench() {
                         "h-10 border-r border-slate-300 text-sm font-medium text-slate-600 transition last:border-r-0 hover:bg-slate-50",
                         seniority === option && "bg-teal-700 text-white hover:bg-teal-700",
                       )}
-                      onClick={() => setSeniority(option)}
+                      onClick={() => { invalidateAnalysis(); setSeniority(option); }}
                     >
                       {seniorityLabels[option]}
                     </button>
@@ -409,7 +446,7 @@ export function JobFitWorkbench() {
             </div>
           </section>
 
-          <section className="min-w-0 border border-slate-900/10 bg-white shadow-sm">
+          <section aria-busy={isAnalyzing} className="min-w-0 border border-slate-900/10 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
@@ -437,8 +474,13 @@ export function JobFitWorkbench() {
               </div>
             ) : null}
 
-            {report ? (
+            {draftReport ? (
+              <ClarificationForm questions={draftReport.questions} answers={answers} onChange={setAnswers}
+                onSubmit={(selected) => void handleAnalyze(selected)} onSkip={handleSkipQuestions} busy={isAnalyzing} />
+            ) : report ? (
             <div className="p-4 sm:p-5">
+              {report.source === "heuristic" ? <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t.report.fallback}</p> : null}
+              {!evidenceRequirements.length ? <p className="mb-4 text-sm text-slate-600">{t.report.noRequirements}</p> : null}
               <div className="grid gap-5 xl:grid-cols-[220px_1fr]">
                 <div className="flex flex-col justify-between gap-5 border border-slate-200 bg-[#111827] p-5 text-white">
                   <div>
@@ -446,8 +488,8 @@ export function JobFitWorkbench() {
                       {t.report.matchScore}
                     </p>
                     <div className="mt-3 flex items-end gap-1">
-                      <span className="text-6xl font-semibold tracking-tight">{report.score}</span>
-                      <span className="pb-2 text-xl font-semibold text-white/45">%</span>
+                      <span className="text-6xl font-semibold tracking-tight">{evidenceRequirements.length ? report.score : "—"}</span>
+                      {evidenceRequirements.length ? <span className="pb-2 text-xl font-semibold text-white/45">%</span> : null}
                     </div>
                   </div>
                   <div className="h-2 overflow-hidden rounded-[8px] bg-white/15">
@@ -469,7 +511,7 @@ export function JobFitWorkbench() {
                     <Metric
                       icon={BarChart3}
                       label={t.report.requirementsMetric}
-                      value={t.report.requirementsValue(report.requirements.length)}
+                      value={t.report.requirementsValue(evidenceRequirements.length)}
                     />
                     <Metric
                       icon={CheckCircle2}
@@ -481,6 +523,27 @@ export function JobFitWorkbench() {
                 </div>
               </div>
 
+              <p className="mt-3 text-xs leading-5 text-slate-600">{t.report.scoreHelp}</p>
+              {report.unassessedClarifications?.length ? <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                {t.report.unassessed} {report.unassessedClarifications.join(", ")}
+              </p> : null}
+
+              {practicalConditions.length ? <section aria-label={t.report.conditionsTitle} className="mt-5 rounded-lg border border-slate-300 bg-slate-50 p-4">
+                <h3 className="font-semibold text-slate-950">{t.report.conditionsTitle}</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{t.report.conditionsHelp}</p>
+                <ul className="mt-3 divide-y divide-slate-200">
+                  {practicalConditions.map((condition) => <li key={condition.id} className="space-y-2 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-950">{condition.label}</p>
+                      <span className={cn("rounded-lg border px-2 py-1 text-xs font-medium", statusStyles[condition.status].className)}>{t.conditionStatus[condition.status]}</span>
+                    </div>
+                    <p className="text-xs uppercase text-slate-500">{condition.categoryLabel}</p>
+                    <p className="text-sm leading-6 text-slate-600">{condition.evidence}</p>
+                    <p className="text-xs text-teal-700">{t.provenance[condition.evidenceSource]}</p>
+                  </li>)}
+                </ul>
+              </section> : null}
+
               <div className="mt-6 overflow-hidden border border-slate-200">
                 <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-900">{t.report.evidenceTitle}</p>
@@ -490,7 +553,7 @@ export function JobFitWorkbench() {
                 </div>
 
                 <div className="divide-y divide-slate-200">
-                  {report.requirements.map((requirement) => {
+                  {evidenceRequirements.map((requirement) => {
                     const status = statusStyles[requirement.status];
                     const Icon = status.icon;
 
@@ -509,6 +572,7 @@ export function JobFitWorkbench() {
                           <p className="mt-1 text-sm leading-6 text-slate-600">
                             {requirement.evidence}
                           </p>
+                          <p className="mt-2 text-xs font-medium text-teal-700">{t.provenance[requirement.evidenceSource]}</p>
                         </div>
                         <span
                           className={cn(
@@ -524,6 +588,20 @@ export function JobFitWorkbench() {
                   })}
                 </div>
               </div>
+
+              {(["unknown", "parcial"] as const).map((status) => {
+                const items = evidenceRequirements.filter((requirement) => requirement.status === status);
+                return items.length ? <div key={status} className="mt-5 rounded-lg border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold">{status === "unknown" ? t.report.pending : t.report.partial}</h3>
+                  <p className="mt-1 text-sm text-slate-600">{items.map((requirement) => requirement.label).join(", ")}</p>
+                  {status === "unknown" ? <p className="mt-2 text-xs leading-5 text-slate-500">{t.report.unknownHelp}</p> : null}
+                </div> : null;
+              })}
+              {report.cvImprovements.length ? <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4">
+                <h3 className="text-sm font-semibold text-teal-950">{t.report.addToCv}</h3>
+                <p className="mt-1 text-sm text-teal-900">{t.report.addToCvHelp}</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-teal-900">{report.cvImprovements.map((label) => <li key={label}>{label}</li>)}</ul>
+              </div> : null}
 
               <div className="mt-5 border border-teal-200 bg-teal-50 px-4 py-3">
                 <p className="text-sm font-semibold text-teal-950">{t.report.nextTitle}</p>

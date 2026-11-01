@@ -13,7 +13,8 @@ const inputMessages = new Map([
   ["cvText", "Use between 80 and 50,000 characters for the CV"],
   ["jobText", "Use between 80 and 50,000 characters for the job advert"],
   ["seniority", "Choose junior, mid or senior"],
-  ["language", "Choose es or en"]
+  ["language", "Choose es or en"],
+  ["clarifications", "Provide up to three different answers, with at most 1,000 characters of detail each"]
 ]);
 
 export function createAnalysisController({ quotaStore, analyse = createAnalysis }: AnalysisDependencies) {

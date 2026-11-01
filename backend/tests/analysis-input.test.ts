@@ -3,7 +3,30 @@ import { parseAnalysisInput } from "../../frontend/lib/analysis-input";
 import { createAnalysisSchema } from "../src/modules/analyses/analysis.schema.js";
 import { sampleInput } from "./helpers.js";
 
+const answer = { requirementId: "english", requirement: "Professional English", response: "yes", details: "B2; weekly client meetings." };
 const cases: { name: string; input: unknown; accepted: boolean }[] = [
+  ...[
+    { name: "empty final answers", value: [], accepted: true },
+    { name: "valid answer", value: [answer], accepted: true },
+    { name: "negative answer without details", value: [{ ...answer, response: "no", details: "" }], accepted: true },
+    { name: "trimmed answer", value: [{ ...answer, requirementId: " english ", details: " B2 " }], accepted: true },
+    { name: "partial answer", value: [{ ...answer, response: "partly" }], accepted: true },
+    { name: "three answers", value: [0, 1, 2].map((id) => ({ ...answer, requirementId: String(id) })), accepted: true },
+    { name: "four answers", value: [0, 1, 2, 3].map((id) => ({ ...answer, requirementId: String(id) })), accepted: false },
+    { name: "duplicate answers", value: [answer, { ...answer, requirementId: " english " }], accepted: false },
+    { name: "null answers", value: null, accepted: false },
+    { name: "object answers", value: {}, accepted: false },
+    { name: "null answer", value: [null], accepted: false },
+    { name: "injected score", value: [{ ...answer, score: 100 }], accepted: false },
+    { name: "invalid response", value: [{ ...answer, response: "skip" }], accepted: false },
+    { name: "array response", value: [{ ...answer, response: ["yes"] }], accepted: false },
+    { name: "affirmation without evidence", value: [{ ...answer, details: "   " }], accepted: false },
+    ...[["requirementId", 80], ["requirement", 160], ["details", 1000]].flatMap(([key, limit]) => [
+      { name: `${key} at limit`, value: [{ ...answer, [key]: "x".repeat(Number(limit)) }], accepted: true },
+      { name: `${key} too long`, value: [{ ...answer, [key]: "x".repeat(Number(limit) + 1) }], accepted: false },
+      { name: `${key} missing`, value: [{ ...answer, [key]: undefined }], accepted: false }
+    ])
+  ].map(({ name, value, accepted }) => ({ name: `clarifications: ${name}`, input: { ...sampleInput, clarifications: value }, accepted })),
   { name: "valid input", input: sampleInput, accepted: true },
   { name: "null", input: null, accepted: false },
   { name: "an array", input: [sampleInput], accepted: false },

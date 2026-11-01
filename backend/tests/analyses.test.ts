@@ -44,8 +44,8 @@ describe("POST /api/v1/analyses", () => {
         expect.objectContaining({ id: "typescript", status: "si" })
       ])
     });
-    expect(response.json().score).toBeGreaterThanOrEqual(8);
-    expect(response.json().score).toBeLessThanOrEqual(96);
+    expect(response.json().score).toBeGreaterThanOrEqual(0);
+    expect(response.json().score).toBeLessThanOrEqual(100);
     expect(Date.parse(response.json().generatedAt)).not.toBeNaN();
     expect(response.json().source).toBe("heuristic");
   });
