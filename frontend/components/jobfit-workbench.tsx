@@ -146,6 +146,8 @@ export function JobFitWorkbench() {
   );
 
   const canAnalyze = parseAnalysisInput({ cvText, jobText, seniority, language }) !== null;
+  const evidenceRequirements = report?.requirements.filter((requirement) => requirement.kind !== "condition") ?? [];
+  const practicalConditions = report?.requirements.filter((requirement) => requirement.kind === "condition") ?? [];
   const gapText =
     report && report.gaps.length > 0 ? report.gaps.join(", ") : t.report.noCriticalGaps;
 
@@ -264,11 +266,17 @@ export function JobFitWorkbench() {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
+    const exportRequirement = ({ label, kind, categoryLabel, status, evidence, evidenceSource, cvAssessability, cvAssessmentReason, clarificationMaterial }: Report["requirements"][number]) => ({
+      label, kind, category: categoryLabel,
+      status: kind === "condition" ? t.conditionStatus[status] : t.status[status],
+      evidence, evidenceSource, evidenceSourceLabel: t.provenance[evidenceSource],
+      cvAssessability, cvAssessmentReason, clarificationMaterial,
+    });
     const payload = {
       generatedAt: new Date().toISOString(),
       language,
       seniority: seniorityLabels[analysisInput.seniority],
-      score: report.score,
+      score: evidenceRequirements.length ? report.score : null,
       scoreExplanation: t.report.scoreHelp,
       source: report.source,
       roleTitle: report.roleTitle,
@@ -277,14 +285,8 @@ export function JobFitWorkbench() {
       gaps: report.gaps,
       cvImprovements: report.cvImprovements,
       unassessedClarifications: report.unassessedClarifications,
-      requirements: report.requirements.map(({ label, categoryLabel, status, evidence, evidenceSource }) => ({
-        label,
-        category: categoryLabel,
-        status: t.status[status],
-        evidence,
-        evidenceSource,
-        evidenceSourceLabel: t.provenance[evidenceSource],
-      })),
+      requirements: evidenceRequirements.map(exportRequirement),
+      conditions: practicalConditions.map(exportRequirement),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -478,7 +480,7 @@ export function JobFitWorkbench() {
             ) : report ? (
             <div className="p-4 sm:p-5">
               {report.source === "heuristic" ? <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t.report.fallback}</p> : null}
-              {!report.requirements.length ? <p className="mb-4 text-sm text-slate-600">{t.report.noRequirements}</p> : null}
+              {!evidenceRequirements.length ? <p className="mb-4 text-sm text-slate-600">{t.report.noRequirements}</p> : null}
               <div className="grid gap-5 xl:grid-cols-[220px_1fr]">
                 <div className="flex flex-col justify-between gap-5 border border-slate-200 bg-[#111827] p-5 text-white">
                   <div>
@@ -486,8 +488,8 @@ export function JobFitWorkbench() {
                       {t.report.matchScore}
                     </p>
                     <div className="mt-3 flex items-end gap-1">
-                      <span className="text-6xl font-semibold tracking-tight">{report.requirements.length ? report.score : "—"}</span>
-                      {report.requirements.length ? <span className="pb-2 text-xl font-semibold text-white/45">%</span> : null}
+                      <span className="text-6xl font-semibold tracking-tight">{evidenceRequirements.length ? report.score : "—"}</span>
+                      {evidenceRequirements.length ? <span className="pb-2 text-xl font-semibold text-white/45">%</span> : null}
                     </div>
                   </div>
                   <div className="h-2 overflow-hidden rounded-[8px] bg-white/15">
@@ -509,7 +511,7 @@ export function JobFitWorkbench() {
                     <Metric
                       icon={BarChart3}
                       label={t.report.requirementsMetric}
-                      value={t.report.requirementsValue(report.requirements.length)}
+                      value={t.report.requirementsValue(evidenceRequirements.length)}
                     />
                     <Metric
                       icon={CheckCircle2}
@@ -526,6 +528,22 @@ export function JobFitWorkbench() {
                 {t.report.unassessed} {report.unassessedClarifications.join(", ")}
               </p> : null}
 
+              {practicalConditions.length ? <section aria-label={t.report.conditionsTitle} className="mt-5 rounded-lg border border-slate-300 bg-slate-50 p-4">
+                <h3 className="font-semibold text-slate-950">{t.report.conditionsTitle}</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{t.report.conditionsHelp}</p>
+                <ul className="mt-3 divide-y divide-slate-200">
+                  {practicalConditions.map((condition) => <li key={condition.id} className="space-y-2 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-950">{condition.label}</p>
+                      <span className={cn("rounded-lg border px-2 py-1 text-xs font-medium", statusStyles[condition.status].className)}>{t.conditionStatus[condition.status]}</span>
+                    </div>
+                    <p className="text-xs uppercase text-slate-500">{condition.categoryLabel}</p>
+                    <p className="text-sm leading-6 text-slate-600">{condition.evidence}</p>
+                    <p className="text-xs text-teal-700">{t.provenance[condition.evidenceSource]}</p>
+                  </li>)}
+                </ul>
+              </section> : null}
+
               <div className="mt-6 overflow-hidden border border-slate-200">
                 <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-900">{t.report.evidenceTitle}</p>
@@ -535,7 +553,7 @@ export function JobFitWorkbench() {
                 </div>
 
                 <div className="divide-y divide-slate-200">
-                  {report.requirements.map((requirement) => {
+                  {evidenceRequirements.map((requirement) => {
                     const status = statusStyles[requirement.status];
                     const Icon = status.icon;
 
@@ -572,7 +590,7 @@ export function JobFitWorkbench() {
               </div>
 
               {(["unknown", "parcial"] as const).map((status) => {
-                const items = report.requirements.filter((requirement) => requirement.status === status);
+                const items = evidenceRequirements.filter((requirement) => requirement.status === status);
                 return items.length ? <div key={status} className="mt-5 rounded-lg border border-slate-200 p-4">
                   <h3 className="text-sm font-semibold">{status === "unknown" ? t.report.pending : t.report.partial}</h3>
                   <p className="mt-1 text-sm text-slate-600">{items.map((requirement) => requirement.label).join(", ")}</p>

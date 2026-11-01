@@ -11,7 +11,7 @@ The current version is a Next.js workbench connected to the JobFit Proof API. A 
 - Spanish/English language context with local preference persistence.
 - Backend analysis for match score, strengths, gaps, and evidence by requirement.
 - Report export as JSON.
-- Up to three optional clarification questions before the final report, in both languages.
+- Optional clarification for every assessed requirement that needs it, in both languages.
 - Separate labels for CV evidence, self-reported information and unknown requirements.
 - Responsive UI built with Next.js, React, Tailwind CSS, shadcn-style primitives, and lucide icons.
 
@@ -127,10 +127,27 @@ lib/
 
 After the first analysis, answer the optional questions or choose **Continue without
 answering**. Missing information remains **Needs clarification**, rather than a
-confirmed gap. Positive answers need a level or specific example. Answers update
+confirmed gap. Positive skill answers need a level or specific example. Answers update
 the report without modifying the CV; suggested CV additions remain clearly labelled.
-The score explains the weighted evidence available, including supplied answers.
-Exported reports retain evidence provenance and the score explanation.
+The score explains the weighted skills and experience evidence, including supplied
+answers. Practical conditions are excluded from this score and shown separately.
+Exported reports retain evidence provenance and the score explanation, with separate
+`requirements` and `conditions` arrays.
+
+The clarification form groups **Practical conditions** (hours, travel, office
+attendance, start dates) apart from **Skills and experience**. Conditions use
+**Yes / No / Depends**. Only **Depends** reveals a required context field; choosing
+Yes or No clears previous conditional details. All questions can still be skipped.
+The final conditions panel uses **Works for you / Does not work for you / Depends /
+Unconfirmed**, so an incompatible schedule remains visible even with a strong
+skills score. It is never described as a skills gap or suggested as a CV improvement.
+
+Questions follow a separate CV assessability decision: evaluate sufficient CV
+evidence, clarify material uncertainty, and ask directly about requirements that
+cannot reasonably be determined from the CV. The question list is not cut off at
+three; it can include all twelve requirements supported by an analysis. Each
+question explains why it is asked, and a counter shows completed answers. The
+export retains the assessability decision, reason and materiality for each requirement.
 
 Submitting answers makes a second analysis request under the same limits. Skipping
 all questions uses the existing draft without another request. If updating fails,
@@ -166,7 +183,7 @@ Remote backend connections require HTTPS; redirects are rejected.
 | `BACKEND_API_URL` | Backend origin, without a path or embedded credentials |
 | `APP_ORIGIN` | Exact public frontend origin; required in production |
 | `TRUSTED_CLIENT_IP_HEADER` | Ingress-owned header containing one verified client IP; required in production |
-| `BACKEND_TIMEOUT_MS` | Upstream deadline in milliseconds; defaults to 40000 |
+| `BACKEND_TIMEOUT_MS` | Upstream deadline in milliseconds; defaults to 75000 (above the backend's 60000 ms AI deadline) |
 
 Only configure `TRUSTED_CLIENT_IP_HEADER` after verifying that your hosting provider
 or reverse proxy **overwrites** this header and that visitors cannot bypass that
