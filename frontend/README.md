@@ -11,6 +11,8 @@ The current version is a Next.js workbench connected to the JobFit Proof API. A 
 - Spanish/English language context with local preference persistence.
 - Backend analysis for match score, strengths, gaps, and evidence by requirement.
 - Report export as JSON.
+- Up to three optional clarification questions before the final report, in both languages.
+- Separate labels for CV evidence, self-reported information and unknown requirements.
 - Responsive UI built with Next.js, React, Tailwind CSS, shadcn-style primitives, and lucide icons.
 
 ## Tech Stack
@@ -122,6 +124,18 @@ lib/
 ```
 
 ## MVP Direction
+
+After the first analysis, answer the optional questions or choose **Continue without
+answering**. Missing information remains **Needs clarification**, rather than a
+confirmed gap. Positive answers need a level or specific example. Answers update
+the report without modifying the CV; suggested CV additions remain clearly labelled.
+The score explains the weighted evidence available, including supplied answers.
+Exported reports retain evidence provenance and the score explanation.
+
+Submitting answers makes a second analysis request under the same limits. Skipping
+all questions uses the existing draft without another request. If updating fails,
+answers are preserved for retry or skipping. Editing either text, the target level,
+or the interface language clears the draft and cancels any in-flight request.
 
 The agreed MVP flow is:
 

@@ -88,6 +88,50 @@ curl -X POST http://localhost:4000/api/v1/analyses \
 
 `seniority` accepts `junior`, `mid`, or `senior`. `language` accepts `es` or `en` and defaults to `es`.
 
+### Optional clarification round
+
+The first response includes up to three `questions`, prioritising required skills
+whose evidence is missing or partial. Each question contains `requirementId`,
+`requirement` and `question`. To update the report, post the same input with an
+optional `clarifications` array:
+
+```json
+{
+  "clarifications": [{
+    "requirementId": "english",
+    "requirement": "English B2",
+    "response": "yes",
+    "details": "C1; weekly client meetings in English."
+  }]
+}
+```
+
+Answers accept `yes`, `partly` or `no`; positive and partial answers require details.
+At most three unique IDs are accepted. IDs, requirement labels and details are
+trimmed and limited to 80, 160 and 1,000 characters respectively. Both the Next.js
+proxy and backend reject extra fields and invalid answers before reserving quota.
+Answers are untrusted data and never instructions or proof of the requested level.
+
+Submitting answers performs another quota-protected analysis and can call OpenAI
+once more. It does not bypass daily budgets or concurrency limits. An empty array
+finishes without more questions. The UI skips all questions using its existing
+draft, with no second request. There is only one clarification round in the UI;
+answers stay in browser memory and are cleared when the input or language changes.
+
+Requirement statuses are `si`, `parcial`, `no` and `unknown`. Missing information is
+`unknown`; only explicit non-fulfilment appears in `gaps`. `evidenceSource` identifies
+`cv`, `user` or `unknown`. Answers never modify the CV. `cvImprovements` lists
+self-reported information that could be added. Interest in AI is evaluated
+separately from professional AI experience.
+
+The score is weighted evidence coverage (full weight for `si`, half for `parcial`,
+zero for `no` and `unknown`), not a prediction of hiring success. Unknowns remain
+visible separately. The heuristic fallback only recognises its known requirements,
+does not invent requirements for unrelated adverts, and conservatively treats
+positive answers as partial evidence because it cannot evaluate levels or context.
+`unassessedClarifications` identifies answers that could not be matched to an
+assessed requirement; the UI and export disclose these without silently crediting them.
+
 The direct request above is for local diagnostics, with `INTERNAL_API_SECRET`
 exported in the shell. Normal visitors use the Next.js `/api/analyze` endpoint;
 Next.js supplies the service credentials and a pseudonymous client identifier.

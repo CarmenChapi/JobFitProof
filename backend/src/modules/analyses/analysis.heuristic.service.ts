@@ -5,6 +5,7 @@ import type {
   RequirementCategory,
   RequirementStatus
 } from "./analysis.schema.js";
+import { buildReport, type AssessedRequirement } from "./analysis.report.js";
 
 type RequirementId =
   | "react"
@@ -16,6 +17,8 @@ type RequirementId =
   | "performance"
   | "product"
   | "english"
+  | "ai_interest"
+  | "ai_experience"
   | "leadership";
 
 type RequirementDefinition = {
@@ -86,9 +89,11 @@ const requirementBank: RequirementDefinition[] = [
   {
     id: "english",
     category: "preferred",
-    patterns: ["ingles", "inglés", "english", "b2", "c1", "advanced", "avanzado"],
+    patterns: ["ingles", "inglés", "english"],
     weight: 5
   },
+  { id: "ai_interest", category: "preferred", patterns: ["interest in ai", "interested in ai", "interest in artificial intelligence", "interes en ia", "interes por la ia", "interes en inteligencia artificial", "interes por la inteligencia artificial"], weight: 5 },
+  { id: "ai_experience", category: "required", patterns: ["professional ai experience", "professional experience in ai", "experience with ai", "experience in artificial intelligence", "experiencia con ia", "experiencia en ia", "experiencia en inteligencia artificial"], weight: 12 },
   {
     id: "leadership",
     category: "preferred",
@@ -129,13 +134,16 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
       performance: "Rendimiento web",
       product: "Trabajo con producto",
       english: "Inglés profesional",
+      ai_interest: "Interés en inteligencia artificial",
+      ai_experience: "Experiencia profesional en inteligencia artificial",
       leadership: "Liderazgo técnico"
     },
     evidence: {
       si: (label) => `Hay evidencia directa de ${label.toLowerCase()} en el CV.`,
       parcial: (label) =>
         `Aparecen señales relacionadas, pero conviene explicitar ${label.toLowerCase()} con impacto medible.`,
-      no: (label) => `No aparece una prueba clara de ${label.toLowerCase()} para este requisito.`
+      no: (label) => `Has indicado que todavía no cumples el requisito de ${label.toLowerCase()}.`,
+      unknown: (label) => `El CV no aporta información suficiente sobre ${label.toLowerCase()}. No se considera una carencia confirmada.`
     }
   },
   en: {
@@ -159,13 +167,16 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
       performance: "Web performance",
       product: "Product collaboration",
       english: "Professional English",
+      ai_interest: "Interest in artificial intelligence",
+      ai_experience: "Professional AI experience",
       leadership: "Technical leadership"
     },
     evidence: {
       si: (label) => `There is direct evidence of ${label.toLowerCase()} in the CV.`,
       parcial: (label) =>
         `Related signals appear, but ${label.toLowerCase()} should be stated with measurable impact.`,
-      no: (label) => `There is no clear evidence of ${label.toLowerCase()} for this requirement.`
+      no: (label) => `You confirmed that you do not yet meet the requirement for ${label.toLowerCase()}.`,
+      unknown: (label) => `The CV does not provide enough information about ${label.toLowerCase()}. This is not a confirmed gap.`
     }
   }
 };
@@ -178,7 +189,7 @@ function normalizeText(value: string): string {
 }
 
 function hasAnyPattern(text: string, patterns: string[]): boolean {
-  return patterns.some((pattern) => text.includes(normalizeText(pattern)));
+  return patterns.some((pattern) => new RegExp(`(?:^|[^a-z0-9])${normalizeText(pattern).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^a-z0-9])`).test(text));
 }
 
 function inferRoleTitle(jobText: string, copy: AnalysisCopy): string {
@@ -203,93 +214,47 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
   const copy = copyByLanguage[input.language];
   const normalizedCv = normalizeText(input.cvText);
   const normalizedJob = normalizeText(input.jobText);
-  const jobHasKnownRequirements = requirementBank.some((requirement) =>
-    hasAnyPattern(normalizedJob, requirement.patterns)
-  );
+  const activeRequirements = requirementBank.filter((requirement) => hasAnyPattern(normalizedJob, requirement.patterns));
 
-  const activeRequirements = requirementBank.filter((requirement, index) => {
-    if (!jobHasKnownRequirements) {
-      return index < 6;
-    }
-
-    return (
-      hasAnyPattern(normalizedJob, requirement.patterns) ||
-      ["react", "typescript", "api"].includes(requirement.id)
-    );
-  });
-
-  const requirements = activeRequirements.map((requirement) => {
+  const requirements: AssessedRequirement[] = activeRequirements.map((requirement) => {
     const directMatch = hasAnyPattern(normalizedCv, requirement.patterns);
     const relatedMatch = requirement.relatedPatterns
       ? hasAnyPattern(normalizedCv, requirement.relatedPatterns)
       : false;
-    const seniorLeadershipPartial =
-      requirement.id === "leadership" && input.seniority !== "junior" && normalizedCv.length > 120;
     const status: RequirementStatus = directMatch
-      ? "si"
-      : relatedMatch || seniorLeadershipPartial
+      ? ["english", "ai_experience"].includes(requirement.id) ? "parcial" : "si"
+      : relatedMatch
         ? "parcial"
-        : "no";
+        : "unknown";
     const label = copy.requirements[requirement.id];
-
-    return {
+    const answer = input.clarifications?.find((answer) => answer.requirementId === requirement.id ||
+      normalizeText(answer.requirement) === normalizeText(label) ||
+      hasAnyPattern(normalizeText(answer.requirement), requirement.patterns));
+    const result: AssessedRequirement = {
       id: requirement.id,
       label,
       category: requirement.category,
       categoryLabel: copy.categories[requirement.category],
       status,
       evidence: copy.evidence[status](label),
-      weight: requirement.weight
+      evidenceSource: status === "unknown" ? "unknown" : "cv",
+      weight: requirement.weight,
+      question: requirement.id === "english"
+        ? input.language === "es" ? "¿Cuál es tu nivel de inglés y en qué situaciones lo has utilizado?" : "What is your English level, and in which situations have you used it?"
+        : requirement.id === "ai_interest"
+          ? input.language === "es" ? "¿Qué te interesa de la IA? Puedes mencionar herramientas, cursos o proyectos personales." : "What interests you about AI? You can mention tools, courses or personal projects."
+          : null
     };
+    if (answer) {
+      result.answerId = answer.requirementId;
+      result.evidenceSource = "user";
+      // Keyword matching cannot establish that a self-reported level meets the advert.
+      result.status = answer.response === "no" ? "no" : "parcial";
+      result.evidence = answer.response === "no" ? copy.evidence.no(label) : input.language === "es"
+        ? `Información aportada por ti: ${answer.details}. La revisión básica no puede comprobar el nivel exigido por la oferta.`
+        : `Information supplied by you: ${answer.details}. The basic review cannot check the level required by the advert.`;
+    }
+    return result;
   });
-
-  const totalWeight = requirements.reduce((sum, requirement) => sum + requirement.weight, 0);
-  const earnedWeight = requirements.reduce((sum, requirement) => {
-    if (requirement.status === "si") {
-      return sum + requirement.weight;
-    }
-
-    if (requirement.status === "parcial") {
-      return sum + requirement.weight * 0.48;
-    }
-
-    return sum;
-  }, 0);
-  const seniorityAdjustment =
-    input.seniority === "senior" &&
-    !hasAnyPattern(normalizedCv, [
-      "lider",
-      "líder",
-      "lead",
-      "leadership",
-      "arquitectura",
-      "architecture"
-    ])
-      ? -5
-      : input.seniority === "junior"
-        ? 3
-        : 0;
-  const score = Math.max(
-    8,
-    Math.min(96, Math.round((earnedWeight / Math.max(totalWeight, 1)) * 100 + seniorityAdjustment))
-  );
-  const matchedRequirements = requirements.filter((requirement) => requirement.status === "si");
-  const gaps = requirements
-    .filter((requirement) => requirement.status !== "si")
-    .slice(0, 3)
-    .map((requirement) => requirement.label);
-
-  return {
-    generatedAt: new Date().toISOString(),
-    language: input.language,
-    seniority: input.seniority,
-    roleTitle: inferRoleTitle(input.jobText, copy),
-    score,
-    summary:
-      score >= 78 ? copy.summaries.high : score >= 55 ? copy.summaries.mid : copy.summaries.low,
-    strengths: matchedRequirements.slice(0, 4).map((requirement) => requirement.label),
-    gaps,
-    requirements,
-    source: "heuristic"
-  };
+  return buildReport(input, inferRoleTitle(input.jobText, copy), requirements, "heuristic");
 }
