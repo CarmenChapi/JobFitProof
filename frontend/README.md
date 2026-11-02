@@ -1,235 +1,226 @@
-# JobFitProof
+# JobFitProof — Frontend
 
-JobFitProof is a frontend prototype for checking how well a CV fits a job advert before applying.
+The JobFitProof frontend is a bilingual Next.js workbench for comparing a CV with a job advert, answering clarification questions and reviewing an evidence-based fit report. A server-side API route connects the browser to the Fastify backend without exposing service credentials.
 
-The current version is a Next.js workbench connected to the JobFit Proof API. A user can paste a CV, paste a job advert, choose a target level, switch the interface between Castilian Spanish and British English, generate a fit report, and export the result as JSON.
+[Project overview and full setup](../README.md) · [Backend and API contract](../backend/README.md)
 
-## Current Features
+## Responsibilities
 
-- CV and job advert text inputs.
-- Target level selector.
-- Spanish/English language context with local preference persistence.
-- Backend analysis for match score, strengths, gaps, and evidence by requirement.
-- Report export as JSON.
-- Optional clarification for every assessed requirement that needs it, in both languages.
-- Separate labels for CV evidence, self-reported information and unknown requirements.
-- Responsive UI built with Next.js, React, Tailwind CSS, shadcn-style primitives, and lucide icons.
+- Collect and validate CV text, job advert text, report language and target level.
+- Present a responsive **Compare → Clarify → Decide** workflow.
+- Manage optional clarification answers and preserve them if a submission fails.
+- Display skills evidence, practical conditions, uncertainty and suggested CV improvements.
+- Export the final report as JSON.
+- Validate and forward requests through a protected Next.js server route.
 
-## Tech Stack
+Requirement assessment, score calculation and quota enforcement belong to the backend. The frontend displays the returned assessment and translates interface labels.
 
-- Next.js 16 App Router
-- React 19
-- TypeScript
-- Tailwind CSS 4
-- shadcn/base UI primitives
-- lucide-react
+## Technology
 
-## Getting Started
+| Technology | Use |
+| --- | --- |
+| Next.js 16 App Router | Page rendering, application shell and server route |
+| React 19 and TypeScript | Interactive state and typed data contracts |
+| Tailwind CSS 4 | Layout, responsive styles and design tokens |
+| Base UI and class-variance-authority | Shared button primitive and variants |
+| Lucide | Interface icons |
+| `ipaddr.js` and Node.js crypto | Server-side IP normalisation and pseudonymous client identities |
 
-Run the commands below from the repository's `frontend/` directory.
+UI components are stored in the repository. The shadcn generator is not an installed application dependency.
 
-Install dependencies:
+## Local development
+
+Use Node.js 22 or later. The backend and Redis must be running to perform an analysis; see the [root setup guide](../README.md#local-setup).
+
+Run the following commands from `frontend/`:
 
 ```bash
 npm ci
+test -f .env.local || cp .env.example .env.local
 ```
 
-Copy the environment file and start the backend on port 4000:
+Edit `.env.local`:
 
-```bash
-cp .env.example .env.local
+```dotenv
+BACKEND_API_URL=http://127.0.0.1:4000
+INTERNAL_API_SECRET=<same-generated-secret-as-backend>
+APP_ORIGIN=http://127.0.0.1:3000
+TRUSTED_CLIENT_IP_HEADER=
+BACKEND_TIMEOUT_MS=75000
 ```
 
-Set `INTERNAL_API_SECRET` to the same generated secret as the backend and start
-Redis as described in the backend README. The secret must contain 64 lower-case
-hexadecimal characters. Keep it server-only and never prefix it with `NEXT_PUBLIC_`.
+Replace the secret placeholder with the same 64-character lower-case hexadecimal value used by the backend. The [root guide](../README.md#2-configure-the-environment) includes the generation command. `.env.local` is ignored by Git.
 
-Set `APP_ORIGIN` to the exact address used in the browser. The example uses
-`http://127.0.0.1:3000`; if you use `http://localhost:3000` or a different port,
-update it accordingly. Next.js normalises loopback addresses internally, so an
-explicit origin avoids rejecting valid local requests. Restart the development
-server after changing environment variables.
-
-Run the development server:
-
-```bash
-npm run dev
-```
-
-Open:
-
-```txt
-http://127.0.0.1:3000
-```
-
-If Turbopack hangs during local development in this environment, use Webpack:
+Start the development server:
 
 ```bash
 npm run dev -- --webpack --hostname 127.0.0.1
 ```
 
-## Quality Checks
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). To use the default Next.js bundler, run `npm run dev` instead.
 
-Run lint:
+The browser address must exactly match `APP_ORIGIN`. If the hostname or port changes, update the variable and restart the development server. `localhost` and `127.0.0.1` are different origins.
+
+### Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the Next.js development server. |
+| `npm run dev -- --webpack --hostname 127.0.0.1` | Start development with Webpack on loopback. |
+| `npm run lint` | Run ESLint. |
+| `npm run build` | Create a production build. |
+| `npm run build -- --webpack` | Create a production build using Webpack. |
+| `npm start` | Serve an existing production build. |
+
+`npm start` runs in production mode. Analysis requests then require a trusted ingress IP header as well as `APP_ORIGIN`; use the development command for the local setup described above.
+
+## Structure
+
+```text
+app/
+├── layout.tsx                 Metadata, document shell and language provider
+├── page.tsx                   Workbench page
+├── globals.css                Theme, shared styles and motion preferences
+└── api/analyze/route.ts        POST handler delegating to the server proxy
+components/
+├── jobfit-workbench.tsx        Input, request lifecycle, report and JSON export
+├── clarification-form.tsx     Grouped questions, answer validation and progress
+├── report-placeholder.tsx     Empty and loading states
+├── language-provider.tsx      Language context and local preference persistence
+└── ui/button.tsx              Shared Base UI button
+lib/
+├── analysis-input.ts          Runtime input validation for browser and proxy
+├── analysis-report.ts         Report and question TypeScript contracts
+├── i18n.ts                    British English and Castilian Spanish copy
+├── utils.ts                   Class-name composition
+└── server/
+    ├── analysis-proxy.ts       Origin checks, bounded input and authenticated forwarding
+    └── upstream-errors.ts      Public error sanitisation and response headers
+```
+
+## Interface and state
+
+### Input and analysis
+
+The workbench starts with example text. Users can load the example again, clear the inputs or supply their own text. Each text must contain 80–50,000 characters after trimming. Target levels are `junior`, `mid` and `senior`.
+
+Analyses are submitted to `/api/analyze`. The browser never calls OpenAI or the backend analysis endpoint directly. Input errors, usage limits and unavailable services produce localised messages while preserving the entered text.
+
+An `AbortController` cancels an in-flight request when the input, language or target level changes. A request identity check prevents an older response from replacing newer state. Editing these inputs also clears the current draft, report and clarification answers. There are no automatic UI retries.
+
+### Clarification round
+
+When the first report contains questions, the interface shows a clarification form before the final report. Every question is optional, and the form supports up to 12 questions.
+
+| Group | Responses | Additional detail |
+| --- | --- | --- |
+| Skills and experience | Yes, Partly, Not yet | A level or example is required for Yes and Partly. Details for Not yet are optional. |
+| Practical conditions | Yes, No, Depends | Only Depends requires context. Selecting Yes or No removes previous conditional details. |
+
+The form displays each requirement, a completion counter and, for skills questions, the question and its reason. Submitting selected answers makes a second analysis request. **Continue without answering** displays the existing draft without contacting the API again.
+
+There is no second round of questions. If a clarification submission fails, the existing answers remain available for retry or skipping.
+
+### Report and export
+
+The report displays the skills score, assessed role, summary, requirement-level evidence, provenance, unresolved information and suggested next steps. Practical conditions appear in their own section and do not change the skills score. The score explanation makes the treatment of unknown requirements explicit.
+
+The API returns a combined `requirements` array. The frontend separates it by `kind` for display and download:
+
+| Export field | Content |
+| --- | --- |
+| `generatedAt`, `language`, `seniority`, `roleTitle` | Export metadata and assessment context; `generatedAt` is the export time. |
+| `score`, `scoreExplanation`, `source` | Skills score, explanation and `ai` or `heuristic` source. |
+| `requirements` | Skills and experience, with localised status and provenance labels. |
+| `conditions` | Practical conditions, with their own compatibility labels. |
+| `summary`, `strengths`, `gaps` | Assessment summary and confirmed skills findings. |
+| `cvImprovements`, `unassessedClarifications` | Suggested additions and answers that could not be assessed. |
+
+Requirement exports retain CV assessability, its reason and materiality. If there are no skills requirements, the interface displays a dash and exports `score: null`. Exported status labels are localised text rather than the raw API status codes. The downloaded file does not include the full original CV or advert, although evidence and answers may quote personal information from them.
+
+### Language and accessibility
+
+The interface supports `es` and `en`, with Spanish as the initial default. User-facing copy is in [lib/i18n.ts](lib/i18n.ts). English uses British spelling; Spanish uses Castilian Spanish from Spain.
+
+Only the language preference is persisted under `jobfitproof-language` in `localStorage`. User text, answers and reports remain in React state. Changing language translates untouched sample text but preserves user-written text and clears the analysis.
+
+The interface includes labelled controls, keyboard focus indicators, a skip link, grouped questions, status announcements and focus management when questions or a final report appear. Animations respect `prefers-reduced-motion`. The layout adapts to mobile and desktop screens; no formal accessibility certification is claimed.
+
+## Server proxy
+
+The App Router handler delegates to [lib/server/analysis-proxy.ts](lib/server/analysis-proxy.ts). This module runs on the server and is the boundary between the public browser request and the authenticated backend request.
+
+Before forwarding, the proxy:
+
+1. Checks the server secret and configured application origin.
+2. Requires a matching `Origin` and rejects explicitly cross-site requests.
+3. Accepts only uncompressed UTF-8 `application/json`.
+4. Reads at most 512 KiB, with a five-second upload deadline and `Content-Length` consistency checks.
+5. Validates the input fields, including optional clarification answers, and forwards only normalised data.
+6. Generates its own service authentication and client identity headers.
+7. Sends the request to `/api/v1/analyses` with a deadline, no caching and redirects disabled.
+
+Unknown input fields are rejected. The browser and proxy use the same input parser, while the backend independently validates its Zod schema. The [backend API documentation](../backend/README.md#api-reference) is the reference for field names and limits.
+
+### Environment variables
+
+All variables below are server-side configuration. None should use a `NEXT_PUBLIC_` prefix.
+
+| Variable | Default | Requirement |
+| --- | --- | --- |
+| `INTERNAL_API_SECRET` | None | Required in every environment; must match the backend. |
+| `BACKEND_API_URL` | `http://127.0.0.1:4000` | Backend origin only; no path, credentials, query or fragment. Remote connections require HTTPS. |
+| `APP_ORIGIN` | Request URL origin in development | Set explicitly for local use; required in production. Must match the browser origin. |
+| `TRUSTED_CLIENT_IP_HEADER` | Empty | Required in production; name of an ingress-owned header containing one verified IP address. |
+| `BACKEND_TIMEOUT_MS` | `75000` | Integer from 1,000 to 180,000 milliseconds. Keep it above the backend AI deadline plus processing overhead. |
+
+With no trusted header configured in development, all requests use one shared loopback quota identity. Visitor-supplied IP headers are ignored in that mode.
+
+In production, the hosting ingress must overwrite the selected IP header, and clients must not be able to bypass that ingress. A comma-separated forwarding chain is not accepted. IPv4-mapped IPv6 addresses are normalised to IPv4; IPv6 addresses share an identity within a `/64`. The resulting address/network is HMAC-hashed with the service secret before forwarding. Shared networks can therefore share a quota.
+
+The secret authenticates Next.js to the backend. It does not provide accounts or authenticate the visitor.
+
+### Errors and response handling
+
+| Response | Handling |
+| --- | --- |
+| `400`, `413`, `415` | Localised input guidance; entered text is preserved. |
+| `408` | Upload timeout message. |
+| `429` | Rate, daily or concurrency message using a recognised code and `Retry-After`. |
+| Other failures | Controlled unavailable message; internal exception details are not displayed. |
+
+Upstream error bodies are never forwarded verbatim. For quota errors, body inspection is capped at 4 KiB and one second. Only recognised codes and valid retry values are retained. A valid backend UUID in `X-Request-Id` is forwarded for log correlation. Analysis responses use `Cache-Control: no-store`.
+
+## Verification and maintenance
+
+From `frontend/`:
 
 ```bash
 npm run lint
+npm run build -- --webpack
 ```
 
-Run a production build:
+From the repository root, run the tests that directly exercise frontend server behaviour and input parity:
 
 ```bash
-npm run build
+npm --prefix backend test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts
 ```
 
-Run the proxy security tests and frontend/backend input contract checks from `backend/`:
+Both applications' dependencies must be installed. These tests use mocked upstream requests and do not call OpenAI or require Redis. The repository currently has no frontend `npm test` script or committed browser-test suite.
 
-```bash
-npm test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts
-```
+After interface changes, manually check both languages, mobile and desktop layouts, keyboard focus, input reset, clarification validation, loading/error states and JSON export. Use the backend test suite when changing the API contract.
 
-These tests use mocked upstream requests and do not call OpenAI or require Redis.
+Run `npm audit` from this directory to review dependency advisories. Dependency changes should include the lockfile. `package.json` contains a scoped override for the optional ESLint WASM resolver; review that override when updating its dependency chain.
 
-Check dependency advisories, including development tools, with `npm audit`.
-Use `npm audit --omit=dev` to inspect the production dependencies separately.
-After updating dependencies, commit both `package.json` and `package-lock.json`,
-then run lint, the production build and the backend tests (which exercise this proxy).
+## Troubleshooting
 
-The shadcn generator is not an installed dependency. The existing UI components
-live in `components/ui/` and use Base UI and Tailwind directly. No component uses
-the generator's additional stylesheet. If new generated components require extra
-styles, add the required styles locally and review their dependency requirements.
-
-The scoped npm override keeps the optional WASM resolver used by ESLint on
-`@napi-rs/wasm-runtime` 1.1.6, compatible with the resolver's `@emnapi` 1.x peers.
-Runtime 1.2.0 requires `@emnapi` 2.x prereleases, conflicting with resolver 1.12.2.
-Review this override when `@unrs/resolver-binding-wasm32-wasi` is updated; it applies
-only to version 1.12.2 and does not change Next.js runtime dependencies.
-
-## Project Structure
-
-```txt
-app/
-  layout.tsx              Global app shell and language provider
-  page.tsx                Home route
-components/
-  jobfit-workbench.tsx    Main interactive prototype
-  language-provider.tsx   Language context and persistence
-  ui/                     Shared UI primitives
-lib/
-  analysis-input.ts       Input validation shared by the form and server proxy
-  i18n.ts                 Spanish/English copy dictionaries
-  server/analysis-proxy.ts Protected forwarding to the backend
-  utils.ts                Shared utility helpers
-```
-
-## MVP Direction
-
-After the first analysis, answer the optional questions or choose **Continue without
-answering**. Missing information remains **Needs clarification**, rather than a
-confirmed gap. Positive skill answers need a level or specific example. Answers update
-the report without modifying the CV; suggested CV additions remain clearly labelled.
-The score explains the weighted skills and experience evidence, including supplied
-answers. Practical conditions are excluded from this score and shown separately.
-Exported reports retain evidence provenance and the score explanation, with separate
-`requirements` and `conditions` arrays.
-
-The clarification form groups **Practical conditions** (hours, travel, office
-attendance, start dates) apart from **Skills and experience**. Conditions use
-**Yes / No / Depends**. Only **Depends** reveals a required context field; choosing
-Yes or No clears previous conditional details. All questions can still be skipped.
-The final conditions panel uses **Works for you / Does not work for you / Depends /
-Unconfirmed**, so an incompatible schedule remains visible even with a strong
-skills score. It is never described as a skills gap or suggested as a CV improvement.
-
-Questions follow a separate CV assessability decision: evaluate sufficient CV
-evidence, clarify material uncertainty, and ask directly about requirements that
-cannot reasonably be determined from the CV. The question list is not cut off at
-three; it can include all twelve requirements supported by an analysis. Each
-question explains why it is asked, and a counter shows completed answers. The
-export retains the assessability decision, reason and materiality for each requirement.
-
-Submitting answers makes a second analysis request under the same limits. Skipping
-all questions uses the existing draft without another request. If updating fails,
-answers are preserved for retry or skipping. Editing either text, the target level,
-or the interface language clears the draft and cancels any in-flight request.
-
-The agreed MVP flow is:
-
-- Paste CV text.
-- Paste the job advert.
-- Choose report language.
-- Choose the target level.
-- Run analysis.
-- Review score, evidence, strengths, and gaps.
-- Export the report.
-
-The frontend sends analyses through an internal API route:
-
-```txt
-app/api/analyze/route.ts
-```
-
-That route proxies requests to `BACKEND_API_URL`, which defaults to `http://127.0.0.1:4000`.
-It adds service credentials and a client identifier on the server, replaces any
-visitor-supplied internal headers, and forwards quota responses and `Retry-After`.
-Remote backend connections require HTTPS; redirects are rejected.
-
-## Protected Analysis Configuration
-
-| Variable | Purpose |
+| Symptom | Action |
 | --- | --- |
-| `INTERNAL_API_SECRET` | Shared server-only secret; required in every environment |
-| `BACKEND_API_URL` | Backend origin, without a path or embedded credentials |
-| `APP_ORIGIN` | Exact public frontend origin; required in production |
-| `TRUSTED_CLIENT_IP_HEADER` | Ingress-owned header containing one verified client IP; required in production |
-| `BACKEND_TIMEOUT_MS` | Upstream deadline in milliseconds; defaults to 75000 (above the backend's 60000 ms AI deadline) |
+| The interface loads but analysis fails immediately | Check the backend, Redis and shared secret. Confirm the browser address matches `APP_ORIGIN`. |
+| Local `npm start` renders the page but rejects analysis | Production mode requires trusted ingress configuration. Use `npm run dev` for the documented local workflow. |
+| The report is labelled as a basic review | The backend used its limited heuristic fallback. Inspect the backend's AI configuration and logs. |
+| A recently updated interface cannot read the report | Restart the backend to load the current contract; a healthy process may still be running older code. |
+| A request finishes after the user edits the inputs | The stale response is ignored intentionally. Start another analysis with the updated text. |
+| Inputs disappear after a full page reload | CV and report state is not persisted. Export a completed report before leaving the page. |
 
-Only configure `TRUSTED_CLIENT_IP_HEADER` after verifying that your hosting provider
-or reverse proxy **overwrites** this header and that visitors cannot bypass that
-proxy. It must contain a single IP address. Arbitrary `X-Forwarded-For` chains are
-rejected. The correct header depends on the eventual hosting setup; no provider is
-assumed. Missing production configuration blocks analysis with `503`.
-
-In local development, leaving the trusted header blank gives all visitors one
-shared loopback quota identity and ignores IP headers supplied by the visitor.
-Leaving `APP_ORIGIN` blank in development uses the request URL's origin. Browser
-POST requests must still carry a matching `Origin` and `application/json` content type.
-
-IPv4-mapped IPv6 addresses share the corresponding IPv4 quota. IPv6 addresses in
-the same /64 share one quota. The normalised address is HMAC-hashed before it leaves
-Next.js. Users on a shared network may share a quota.
-
-The proxy accepts only uncompressed UTF-8 `application/json` requests. Before
-contacting the backend, it checks that the JSON is an object containing only
-`cvText`, `jobText`, `seniority` and the optional `language`. Both texts must contain
-80–50,000 characters after trimming; seniority must be `junior`, `mid` or `senior`,
-and language must be `es` or `en` (default `es`). Only the normalised input is
-forwarded. The backend independently validates the same contract before reserving
-quota or starting an analysis.
-
-The proxy caps request bodies at 512 KiB of actual streamed bytes and limits body
-reading to five seconds. If `Content-Length` is present, it must be a valid byte
-count matching the received body. A bounded buffer prevents tiny chunks from
-accumulating an unbounded list of objects. Rejected, timed-out and disconnected
-uploads are cancelled. Invalid input returns `400`, oversized uploads `413`,
-unsupported content types or encodings `415`, and upload timeouts `408`.
-
-Responses are marked `no-store`. Input and quota errors preserve entered text and
-show a localised message; no automatic retries are made by the interface. These
-application checks complement the hosting provider's connection and traffic limits,
-which will be configured when deployment is chosen.
-
-Upstream error bodies are never forwarded verbatim. Input errors use fixed public
-messages; other failures become `503 AnalysisUnavailable`. For `429` responses,
-only the four recognised quota codes and a numeric `Retry-After` header are retained.
-Reading a quota error body is limited to 4 KiB and one second; malformed, oversized
-or stalled bodies fall back to `RateLimitExceeded` without revealing their contents.
-Only a valid UUID from the backend's `X-Request-Id` header is forwarded, so a failure
-can be matched to the backend log without exposing exception details.
-
-## Notes
-
-The backend uses AI analysis with a heuristic fallback. Request quotas are enforced
-before either mode runs. They are independent of the OpenAI spending limit configured
-by the project owner. The reports remain a prototype, not final hiring or career advice.
+For quota behaviour, API schemas and backend errors, see the [backend README](../backend/README.md).
