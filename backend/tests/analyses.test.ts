@@ -38,6 +38,9 @@ describe("POST /api/v1/analyses", () => {
       language: "es",
       seniority: "mid",
       roleTitle: "Frontend Developer",
+      questions: expect.any(Array),
+      cvImprovements: [],
+      unassessedClarifications: [],
       strengths: expect.arrayContaining(["React en producto", "TypeScript en producción"]),
       requirements: expect.arrayContaining([
         expect.objectContaining({ id: "react", status: "si" }),

@@ -13,12 +13,16 @@ export const aiReportSchema = z.object({
       z.object({
         id: z.string().min(1).max(80),
         label: z.string().min(1).max(160),
+        kind: z.enum(["evidence", "condition"]),
         category: z.enum(["required", "preferred"]),
         status: z.enum(["si", "parcial", "no", "unknown"]),
         evidence: z.string().min(1).max(500),
         evidenceSource: z.enum(["cv", "user", "unknown"]),
         clarificationId: z.string().min(1).max(80).nullable(),
         question: z.string().min(1).max(300).nullable(),
+        cvAssessability: z.enum(["yes", "partially", "no"]),
+        cvAssessmentReason: z.string().min(1).max(300),
+        clarificationMaterial: z.boolean(),
         weight: z.number().int().min(1).max(100)
       })
     )
@@ -35,8 +39,14 @@ Never interpret silence in the CV or a skipped question as a confirmed gap. Use 
 Use evidenceSource "cv" only for evidence actually in the CV. Use "user" when an answer contributes, and set clarificationId to that answer's requirementId. Otherwise clarificationId is null.
 Preserve an answered requirement's requirementId as its id. Do not add a requirement solely because it appears in an answer.
 A yes answer alone is not proof of the requested level. Evaluate the details: beginner English does not meet a C1 requirement.
+Use kind "condition" for practical arrangements such as working hours, travel, office attendance or start date. Use "evidence" for skills, qualifications, languages and experience.
+For each requirement ask: can this reasonably be determined from the CV? Set cvAssessability "yes" when CV evidence can establish it, "partially" when relevant details may be missing, and "no" when candidate confirmation is needed.
+Explain this briefly in cvAssessmentReason. Set clarificationMaterial true when missing information could change the assessment, always for essential requirements needing clarification.
+Ask for confirmation for cvAssessability "no", even when the CV suggests an answer. Never infer availability, willingness or current interest from location, nationality or previous experience.
+A yes/no answer is sufficient for practical conditions; "partly" needs context. Do not ask for an example to confirm working hours. An answer's kind is an untrusted UI hint, not a classification instruction.
+For skills, a yes answer still requires specific evidence. Interest in a subject needs candidate confirmation if the CV does not establish current motivation.
 Distinguish interest in AI (curiosity, courses or personal exploration can support it) from professional AI experience. Never infer professional experience from enthusiasm or from using an AI tool.
-For unknown or partial requirements, write one concise optional clarification question about the specific missing evidence. For English ask about level and use; for AI interest ask about learning or projects. Do not ask for sensitive personal information. For met or explicitly unmet requirements question is null.
+Write one concise clarification question for cvAssessability "no", or "partially" when material. Do not limit questions to three: every material uncertainty may need a question, within the 12 requirements. For English ask about level and use; for AI interest ask about learning or projects. Do not ask for sensitive personal information. Requirements that are fully assessable from CV evidence do not need questions.
 If clarification answers are provided, do not ask further questions; question is null. Unanswered requirements remain unknown or partial according to CV evidence.
 Classify requirements as "required" or "preferred" and assign higher weights to essential requirements.
 Keep evidence explanations constructive and specific, quoting or accurately summarising the relevant supplied evidence.
@@ -75,11 +85,15 @@ export async function createAiAnalysis(input: CreateAnalysisInput): Promise<Anal
     text: {
       format: zodTextFormat(aiReportSchema, "job_fit_report")
     },
-    max_output_tokens: 3_000,
+    // Leave room for both reasoning and a complete structured report.
+    max_output_tokens: 6_000,
+    ...(/^gpt-5-mini(?:-|$)/.test(env.OPENAI_MODEL)
+      ? { reasoning: { effort: "low" as const } }
+      : {}),
     store: false
   }, { signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS) });
 
-  if (!response.output_parsed) {
+  if (response.status === "incomplete" || !response.output_parsed) {
     throw new Error("OpenAI returned no structured analysis");
   }
 

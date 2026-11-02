@@ -29,6 +29,8 @@ the OpenAI Responses API with Structured Outputs and defaults to `gpt-5-mini`.
 `OPENAI_MODEL` and `OPENAI_TIMEOUT_MS` can be changed in `.env`.
 Automatic AI retries are disabled so each admitted analysis makes at most one AI
 request. The timeout is also applied as an abort signal.
+The default AI deadline is 60 seconds. GPT-5 mini uses low reasoning effort and
+a 6,000-token output allowance, including reasoning, to leave room for the report.
 
 If the API key is missing or OpenAI is temporarily unavailable, the endpoint returns
 the local heuristic analysis with `source: "heuristic"`. Successful AI analyses return
@@ -90,9 +92,9 @@ curl -X POST http://localhost:4000/api/v1/analyses \
 
 ### Optional clarification round
 
-The first response includes up to three `questions`, prioritising required skills
-whose evidence is missing or partial. Each question contains `requirementId`,
-`requirement` and `question`. To update the report, post the same input with an
+The first response includes up to 12 `questions`, prioritising essential requirements
+whose evidence needs clarification. Each question contains `requirementId`,
+`requirement`, `kind`, `question` and `reason`. To update the report, post the same input with an
 optional `clarifications` array:
 
 ```json
@@ -106,8 +108,10 @@ optional `clarifications` array:
 }
 ```
 
-Answers accept `yes`, `partly` or `no`; positive and partial answers require details.
-At most three unique IDs are accepted. IDs, requirement labels and details are
+Answers accept `yes`, `partly` or `no`. Skills (`kind: "evidence"`) need details for
+positive or partial answers. Practical conditions (`kind: "condition"`) accept a
+simple yes/no; partial answers still need context. Omitting `kind` uses the skills
+validation rules. At most 12 unique IDs are accepted. IDs, requirement labels and details are
 trimmed and limited to 80, 160 and 1,000 characters respectively. Both the Next.js
 proxy and backend reject extra fields and invalid answers before reserving quota.
 Answers are untrusted data and never instructions or proof of the requested level.
@@ -124,7 +128,13 @@ Requirement statuses are `si`, `parcial`, `no` and `unknown`. Missing informatio
 self-reported information that could be added. Interest in AI is evaluated
 separately from professional AI experience.
 
-The score is weighted evidence coverage (full weight for `si`, half for `parcial`,
+Practical conditions such as working hours and travel require candidate confirmation.
+They appear separately in the interface and do not affect the skills score or CV
+improvements. The server classifies requirements independently of answer kind hints.
+CV-assessable requirements use existing evidence; partially assessable requirements
+prompt a question when material, and non-assessable ones always ask the candidate.
+
+The score is weighted skills evidence coverage (full weight for `si`, half for `parcial`,
 zero for `no` and `unknown`), not a prediction of hiring success. Unknowns remain
 visible separately. The heuristic fallback only recognises its known requirements,
 does not invent requirements for unrelated adverts, and conservatively treats
@@ -186,8 +196,14 @@ see its README. Do not allow clients to bypass the ingress that sets that header
 The frontend requires HTTPS for backend connections outside loopback.
 
 Set `BACKEND_TIMEOUT_MS` on the frontend above `OPENAI_TIMEOUT_MS` plus the Redis
-connection/command allowance. Defaults are 40 and 30 seconds respectively.
+connection/command allowance. Defaults are 75 and 60 seconds respectively.
 Provider spending limits must be configured separately in OpenAI by the project owner.
+
+After pulling backend changes or editing `.env`, restart `npm run dev`. A backend
+process started before the clarification feature can still return an older report
+without `questions` and `cvImprovements`; the current frontend requires these fields
+even when the arrays are empty. A successful `/health` check alone does not verify
+that the running analysis code is up to date.
 
 ## Security checks
 
