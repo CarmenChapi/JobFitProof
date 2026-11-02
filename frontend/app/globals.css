@@ -4,6 +4,11 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-ink: #192e27;
+  --color-subtle: #65726b;
+  --color-paper: #f5f6f2;
+  --color-forest: #265541;
+  --color-lime: #d6f1a3;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-app-sans);
@@ -50,13 +55,13 @@
 :root {
   --font-app-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-app-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: #f5f6f2;
+  --foreground: #192e27;
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: #265541;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -65,15 +70,15 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: #e2e7e1;
+  --input: #d5ddd5;
+  --ring: #528365;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.875rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -127,5 +132,107 @@
   }
   html {
     @apply font-sans;
+  }
+  ::selection {
+    background: #d6f1a3;
+    color: #192e27;
+  }
+  button:not(:disabled), select:not(:disabled) {
+    cursor: pointer;
+  }
+  button:focus-visible, a:focus-visible, select:focus-visible,
+  textarea:focus-visible, [tabindex="-1"]:focus-visible {
+    outline: 2px solid #528365;
+    outline-offset: 4px;
+  }
+}
+
+@layer components {
+  .workspace-panel {
+    @apply min-w-0 rounded-3xl border border-border bg-white;
+    box-shadow: 0 4px 24px -16px #1b33242b;
+  }
+  .panel-heading {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-5 sm:px-7;
+  }
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-subtle;
+  }
+  .section-icon {
+    @apply flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-paper text-forest;
+  }
+  .workspace-input {
+    @apply w-full resize-y rounded-2xl border border-border bg-[#f9faf7] px-4 py-3.5 text-sm leading-6 text-ink outline-none transition-colors placeholder:text-subtle/75 focus:border-forest/50 focus:bg-white focus:ring-4 focus:ring-forest/5;
+  }
+  .document-art {
+    position: relative;
+    display: grid;
+    width: 280px;
+    height: 216px;
+    place-items: center;
+    isolation: isolate;
+  }
+  .document-art::before {
+    position: absolute;
+    z-index: -1;
+    width: 204px;
+    height: 204px;
+    content: "";
+    border: 1px solid #dce5d6;
+    border-radius: 50%;
+    background: #eef3e8;
+    box-shadow: 0 0 0 22px #f6f8f1, 0 0 0 23px #edf0e7;
+  }
+  .document-sheet {
+    position: absolute;
+    top: 28px;
+    display: flex;
+    width: 124px;
+    height: 157px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 19px 17px;
+    border: 1px solid #dce4d9;
+    border-radius: 13px;
+    background: white;
+    box-shadow: 0 10px 24px -16px #23463266;
+  }
+  .document-sheet:first-child {
+    left: 39px;
+    transform: rotate(-12deg);
+  }
+  .document-sheet:nth-child(2) {
+    right: 30px;
+    top: 39px;
+    transform: rotate(9deg);
+  }
+  .document-line {
+    height: 5px;
+    border-radius: 3px;
+    background: #e5eae2;
+  }
+  .document-seal {
+    @apply absolute bottom-5 right-12 flex size-12 items-center justify-center rounded-2xl border-4 border-white bg-forest text-lime shadow-lg;
+    transform: rotate(-8deg);
+  }
+  .report-score {
+    background-color: #1c3d30;
+    background-image: radial-gradient(circle at 100% 0%, #40614a 0, transparent 60%);
+  }
+  .workspace-reveal {
+    animation: workspace-reveal 350ms ease-out both;
+  }
+}
+
+@keyframes workspace-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }
