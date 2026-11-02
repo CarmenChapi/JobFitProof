@@ -144,7 +144,7 @@ The interface supports `es` and `en`, with Spanish as the initial default. User-
 
 Only the language preference is persisted under `jobfitproof-language` in `localStorage`. User text, answers and reports remain in React state. Changing language translates untouched sample text but preserves user-written text and clears the analysis.
 
-The interface includes labelled controls, keyboard focus indicators, a skip link, grouped questions, status announcements and focus management when questions or a final report appear. Animations respect `prefers-reduced-motion`. The layout adapts to mobile and desktop screens; no formal accessibility certification is claimed.
+The interface includes labelled controls, keyboard focus indicators, a skip link, grouped questions, status announcements and focus management when questions or a final report appear. Animations respect `prefers-reduced-motion`. The layout adapts to mobile and desktop screens.
 
 ## Server proxy
 

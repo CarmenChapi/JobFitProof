@@ -257,7 +257,7 @@ Public error responses use controlled messages. The API and proxy reject oversiz
 - A strong skills score can coexist with an incompatible practical condition. Both parts of the report need review.
 - Public hosting, a trusted ingress configuration and operational monitoring remain to be configured. `next start` applies production safeguards and is not a substitute for the local development command.
 
-Planned areas for development include a hosted demo, a committed browser-test suite and evaluation cases across a broader range of occupations. These are future improvements, not current features.
+Possible next steps include a hosted demo, a committed browser-test suite and evaluation cases across a broader range of occupations. These are future improvements, not current features.
 
 ## Troubleshooting
 

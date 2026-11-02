@@ -1,235 +1,430 @@
-# JobFit Proof API
+# JobFitProof — Backend
 
-Backend API for JobFit Proof.
+The JobFitProof backend is a Fastify API that assesses CV evidence against a job advert. It authenticates the frontend service, validates input, reserves shared usage quota, coordinates AI or heuristic analysis and calculates a structured report.
 
-## Getting Started
+[Project overview and full setup](../README.md) · [Frontend documentation](../frontend/README.md)
 
-```bash
-npm ci
-cp .env.example .env
-```
+## Responsibilities and architecture
 
-Generate a service secret with `openssl rand -hex 32`. Set the same value as
-`INTERNAL_API_SECRET` in this backend's `.env` and the frontend's `.env.local`.
-The secret is required, must contain 64 lower-case hexadecimal characters, and must
-never use a `NEXT_PUBLIC_` prefix or be committed to Git.
+The backend uses a feature-based structure. The analysis module contains its HTTP boundary, application logic, external integrations and report policy together.
 
-Start a local Redis instance from the repository root:
+| Layer | Responsibility |
+| --- | --- |
+| Routes | Register endpoints, authentication hooks and body limits. |
+| Controller | Validate input, reserve quota, call the analysis service and release the concurrency slot. |
+| Analysis service | Select AI analysis or the heuristic fallback. |
+| AI adapter | Call OpenAI, validate structured output and associate candidate answers with requirements. |
+| Heuristic service | Recognise a limited predefined vocabulary and some practical conditions locally. |
+| Report policy | Normalise assessment decisions, calculate the skills score and generate clarification questions. |
+| Quota store | Enforce shared request and concurrency limits through Redis. |
+| Schemas and types | Define request validation and the report contract. |
 
-```bash
-docker compose -f compose.redis.yml up -d
-```
+There is no database-backed candidate model or repository layer because the application does not persist CVs, candidates or reports. Zod schemas validate incoming data, TypeScript types describe report data, and Redis stores operational quota state. This structure is deliberate and applies beyond local development.
 
-The Compose configuration binds Redis to loopback and persists its data in a named
-volume with AOF and `appendfsync always`. Set `REDIS_URL` in `.env`, then run
-`npm run dev` from `backend/`. An existing Redis service can be used instead of Docker.
+### Technology
 
-Set `OPENAI_API_KEY` in `.env` to enable AI analysis. The analysis endpoint uses
-the OpenAI Responses API with Structured Outputs and defaults to `gpt-5-mini`.
-`OPENAI_MODEL` and `OPENAI_TIMEOUT_MS` can be changed in `.env`.
-Automatic AI retries are disabled so each admitted analysis makes at most one AI
-request. The timeout is also applied as an abort signal.
-The default AI deadline is 60 seconds. GPT-5 mini uses low reasoning effort and
-a 6,000-token output allowance, including reasoning, to leave room for the report.
+Node.js 22+, TypeScript, Fastify 5, Zod 4, the OpenAI JavaScript SDK, ioredis, dotenv and Vitest. The exact versions are recorded in [package.json](package.json) and the lockfile.
 
-If the API key is missing or OpenAI is temporarily unavailable, the endpoint returns
-the local heuristic analysis with `source: "heuristic"`. Successful AI analyses return
-`source: "ai"`. Test runs always use the heuristic and never call the external API.
-
-The API runs on `http://localhost:4000` by default.
-
-## Scripts
-
-- `npm run dev`: start the API in watch mode.
-- `npm run build`: compile TypeScript to `dist/`.
-- `npm start`: run the compiled API.
-- `npm run typecheck`: check TypeScript without emitting files.
-- `npm test`: run the test suite.
-
-Check dependency advisories, including test tools, with `npm audit`.
-Use `npm audit --omit=dev` to inspect production dependencies separately.
-After updates, commit both `package.json` and `package-lock.json`, then run
-`npm run build` and `npm test`. Install the frontend dependencies as well: the
-test suite imports the Next.js proxy and its input validator. Redis integration
-tests require `REDIS_TEST_URL` pointing to a test Redis instance.
-
-## Structure
+### Directory layout
 
 ```text
 src/
-  app.ts              Fastify app factory.
-  server.ts           Process entrypoint.
-  config/env.ts       Environment validation and defaults.
-  modules/analyses/   Routes, authentication, controller, quotas, schemas, and services.
-  plugins/cors.ts     Shared CORS plugin registration.
-  routes/health.ts    Healthcheck endpoint.
-  routes/v1/index.ts  Versioned API routes.
-tests/               API, security, proxy, and Redis integration tests.
+├── server.ts                       Process entry point and HTTP listener
+├── app.ts                          Application factory, plugins and dependencies
+├── config/env.ts                   Environment validation
+├── routes/
+│   ├── health.ts                   Process health endpoint
+│   └── v1/index.ts                 API version information and route registration
+├── plugins/
+│   ├── cors.ts                     Configured CORS policy
+│   └── error-handler.ts            Controlled public errors and server logging
+└── modules/analyses/
+    ├── analysis.routes.ts          Analysis endpoint registration
+    ├── analysis.auth.ts            Service credentials and client identity checks
+    ├── analysis.controller.ts      Request orchestration and quota lifecycle
+    ├── analysis.schema.ts          Input schema and public report types
+    ├── analysis.service.ts         AI/fallback selection
+    ├── analysis.ai.service.ts      OpenAI Structured Outputs integration
+    ├── analysis.heuristic.service.ts Local keyword-based fallback
+    ├── analysis.conditions.ts      Practical-condition recognition
+    ├── analysis.report.ts          Assessment policy, score and questions
+    └── analysis.quota.ts           Redis connection and atomic quota reservation
+tests/                             API, policy, proxy, contract and Redis tests
 ```
 
-## Endpoints
+## Local development
 
-- `GET /health`
-- `GET /api/v1`
-- `POST /api/v1/analyses`
-
-### Create an analysis
+The [root guide](../README.md#local-setup) covers both applications and Redis. The commands in this section run from `backend/`.
 
 ```bash
-curl -X POST http://localhost:4000/api/v1/analyses \
-  -H 'content-type: application/json' \
-  -H "authorization: Bearer $INTERNAL_API_SECRET" \
-  -H 'x-jobfit-client: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
-  -d '{
-    "cvText": "CV text with at least 80 characters...",
-    "jobText": "Job description text with at least 80 characters...",
-    "seniority": "mid",
-    "language": "en"
-  }'
+npm ci
+test -f .env || cp .env.example .env
 ```
 
-`seniority` accepts `junior`, `mid`, or `senior`. `language` accepts `es` or `en` and defaults to `es`.
+Set `INTERNAL_API_SECRET` to the same generated value as `frontend/.env.local`, configure `REDIS_URL`, and add `OPENAI_API_KEY` for AI analysis. The secret must contain exactly 64 lower-case hexadecimal characters. Generate it with `openssl rand -hex 32` and keep it out of source control.
 
-### Optional clarification round
+Redis must be available before submitting an analysis. If using the supplied container, run the following from the **repository root**:
 
-The first response includes up to 12 `questions`, prioritising essential requirements
-whose evidence needs clarification. Each question contains `requirementId`,
-`requirement`, `kind`, `question` and `reason`. To update the report, post the same input with an
-optional `clarifications` array:
+```bash
+docker compose -f compose.redis.yml up -d
+docker compose -f compose.redis.yml exec redis redis-cli ping
+```
+
+An existing local Redis service can be used instead. With the default URL, `redis-cli -h 127.0.0.1 -p 6379 ping` should return `PONG`.
+
+Start the API from `backend/`:
+
+```bash
+npm run dev
+```
+
+It is available locally at [http://127.0.0.1:4000](http://127.0.0.1:4000). Check the process with:
+
+```bash
+curl -fsS http://127.0.0.1:4000/health
+```
+
+This health check does not contact Redis or OpenAI. A running process alone does not establish that an analysis can complete.
+
+### Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the TypeScript server in watch mode. |
+| `npm run typecheck` | Check TypeScript without emitting files. |
+| `npm run build` | Compile `src/` to `dist/`. |
+| `npm start` | Run the compiled `dist/server.js`. |
+| `npm test` | Run the Vitest suite. |
+
+Restart the process after changing environment variables or pulling changes. When using `npm start`, rebuild first so the running JavaScript matches the current TypeScript source.
+
+## Environment variables
+
+Configuration is loaded from `.env` and validated at startup by [src/config/env.ts](src/config/env.ts). The backend exits if required configuration is missing or invalid.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `development`, `test` or `production`; test mode uses local analysis. |
+| `HOST` | `0.0.0.0` | HTTP bind address. Set to `127.0.0.1` to restrict the listener to loopback. |
+| `PORT` | `4000` | HTTP port. |
+| `CORS_ORIGIN` | `http://localhost:3000` | Allowed browser origin. Set it to the frontend origin used in your environment. |
+| `INTERNAL_API_SECRET` | None | Required shared service credential: 64 lower-case hexadecimal characters. |
+| `REDIS_URL` | None | Required `redis://` or `rediss://` URL; the example file uses local port 6379. |
+| `ANALYSIS_RATE_LIMIT` | `3` | Admitted requests per client per short window. |
+| `ANALYSIS_WINDOW_SECONDS` | `600` | Duration of the short window. |
+| `ANALYSIS_DAILY_LIMIT` | `10` | Admitted requests per client per UTC day. |
+| `ANALYSIS_GLOBAL_DAILY_LIMIT` | `50` | Admitted requests across all clients per UTC day. |
+| `ANALYSIS_MAX_CONCURRENT` | `2` | Active reservations across backend instances. |
+| `OPENAI_API_KEY` | Unset | Enables AI analysis; an empty or missing key selects the fallback through the service. |
+| `OPENAI_MODEL` | `gpt-5-mini` | Model used for structured analysis. |
+| `OPENAI_TIMEOUT_MS` | `60000` | AI deadline in milliseconds; positive integer, at most `120000`. |
+
+Next.js adds service credentials server-side, so its backend call is not authenticated by CORS. CORS configuration and service authentication serve different purposes.
+
+The frontend's `BACKEND_TIMEOUT_MS` must exceed the AI deadline plus Redis and request-processing overhead. The default pair is 75 seconds for the frontend proxy and 60 seconds for AI.
+
+## Analysis behaviour
+
+### AI mode
+
+The service sends the CV, job advert, target level, requested locale and optional answers to the OpenAI Responses API. A Zod-derived Structured Outputs schema constrains the response to at most 12 requirements, and the adapter checks the parsed structure and uniqueness of requirement IDs.
+
+The request currently uses a 6,000-token output allowance, `store: false`, an explicit abort deadline and no automatic SDK retries. `gpt-5-mini` and its snapshot names use low reasoning effort. Each admitted analysis makes at most one provider request.
+
+The prompt treats submitted text as untrusted data, requests only criteria explicitly present in the advert and distinguishes missing information from explicit non-fulfilment. It instructs the model to avoid inventing experience or inferring protected characteristics. Schema validation constrains structure; it does not establish the factual accuracy of an assessment.
+
+### Fallback mode
+
+If the provider cannot complete the assessment, returns an incomplete/invalid response, or has no configured key, the service returns `source: "heuristic"`. The frontend labels this as a basic review.
+
+The fallback recognises predefined terms, mainly React, TypeScript, Next.js, APIs, testing, accessibility, performance, product collaboration, English, AI interest/experience and leadership. It also recognises some short practical-condition clauses. It cannot comprehensively interpret unrelated occupations, proficiency levels or complex context. Positive skill answers remain partial evidence in this mode.
+
+`NODE_ENV=test` uses local analysis. AI adapter tests mock the provider rather than sending real requests.
+
+### Clarification and scoring policy
+
+Each requirement has a CV assessability decision:
+
+| `cvAssessability` | Behaviour |
+| --- | --- |
+| `yes` | Evaluate available CV evidence. Unknown evidence is normalised to a partial assessability decision. |
+| `partially` | Ask when missing information is material; unresolved essential requirements receive priority. |
+| `no` | Require candidate confirmation and keep the requirement unknown until it is supplied. |
+
+The backend derives practical-condition handling from assessed requirements and recognised condition labels. A candidate's `kind` hint cannot by itself turn a skill into a condition or award credit for a blank skill answer.
+
+The skills score is calculated deterministically after assessment:
+
+```text
+supportedWeight = sum(weight × statusFactor) for skills and experience
+totalWeight     = sum(weight) for skills and experience
+score           = round(100 × supportedWeight / totalWeight)
+
+statusFactor: si = 1; parcial = 0.5; no = 0; unknown = 0
+```
+
+Practical conditions are excluded from scoring, skills gaps and suggested CV additions. The API returns `score: 0` when there are no skills requirements; the frontend presents no percentage and exports `null` in that case.
+
+An omitted fact is not a confirmed gap. `gaps` contains explicit non-fulfilment of skills requirements. `cvImprovements` contains supported or partially supported self-reported skill information that could be added to the CV. `unassessedClarifications` lists submitted answers that could not be used, rather than silently treating them as evidence.
+
+## API reference
+
+### Endpoints
+
+| Method | Path | Authentication | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/health` | None | Process status, timestamp and uptime. |
+| `GET` | `/api/v1` | None | API name, version and readiness label. |
+| `POST` | `/api/v1/analyses` | Service credentials | Initial analysis or clarification update. |
+
+The health and version endpoints do not check downstream services.
+
+### Analysis request
+
+Normal visitors use the frontend's `/api/analyze` route. Direct backend calls require:
+
+```http
+Content-Type: application/json
+Authorization: Bearer <INTERNAL_API_SECRET>
+X-JobFit-Client: <64-character-lower-case-hexadecimal-identity>
+```
+
+| Field | Required | Validation |
+| --- | --- | --- |
+| `cvText` | Yes | String, 80–50,000 characters after trimming. |
+| `jobText` | Yes | String, 80–50,000 characters after trimming. |
+| `seniority` | Yes | `junior`, `mid` or `senior`. |
+| `language` | No | `es` or `en`; defaults to `es`. |
+| `clarifications` | No | Up to 12 answers with unique requirement IDs. |
+
+Unknown fields are rejected. The route limits request bodies to 512 KiB. Authentication runs before body parsing, and schema validation runs before quota reservation.
+
+Example input, using fictional application material:
 
 ```json
 {
-  "clarifications": [{
-    "requirementId": "english",
-    "requirement": "English B2",
-    "response": "yes",
-    "details": "C1; weekly client meetings in English."
-  }]
+  "cvText": "Project Support Officer with four years coordinating programmes. I prepare monthly Excel reports using pivot tables, maintain action logs and communicate progress to stakeholders.",
+  "jobText": "Project Support Officer required. Essential: experience preparing reports in Excel and willingness to travel to other offices when needed.",
+  "seniority": "mid",
+  "language": "en"
 }
 ```
 
-Answers accept `yes`, `partly` or `no`. Skills (`kind: "evidence"`) need details for
-positive or partial answers. Practical conditions (`kind: "condition"`) accept a
-simple yes/no; partial answers still need context. Omitting `kind` uses the skills
-validation rules. At most 12 unique IDs are accepted. IDs, requirement labels and details are
-trimmed and limited to 80, 160 and 1,000 characters respectively. Both the Next.js
-proxy and backend reject extra fields and invalid answers before reserving quota.
-Answers are untrusted data and never instructions or proof of the requested level.
-
-Submitting answers performs another quota-protected analysis and can call OpenAI
-once more. It does not bypass daily budgets or concurrency limits. An empty array
-finishes without more questions. The UI skips all questions using its existing
-draft, with no second request. There is only one clarification round in the UI;
-answers stay in browser memory and are cleared when the input or language changes.
-
-Requirement statuses are `si`, `parcial`, `no` and `unknown`. Missing information is
-`unknown`; only explicit non-fulfilment appears in `gaps`. `evidenceSource` identifies
-`cv`, `user` or `unknown`. Answers never modify the CV. `cvImprovements` lists
-self-reported information that could be added. Interest in AI is evaluated
-separately from professional AI experience.
-
-Practical conditions such as working hours and travel require candidate confirmation.
-They appear separately in the interface and do not affect the skills score or CV
-improvements. The server classifies requirements independently of answer kind hints.
-CV-assessable requirements use existing evidence; partially assessable requirements
-prompt a question when material, and non-assessable ones always ask the candidate.
-
-The score is weighted skills evidence coverage (full weight for `si`, half for `parcial`,
-zero for `no` and `unknown`), not a prediction of hiring success. Unknowns remain
-visible separately. The heuristic fallback only recognises its known requirements,
-does not invent requirements for unrelated adverts, and conservatively treats
-positive answers as partial evidence because it cannot evaluate levels or context.
-`unassessedClarifications` identifies answers that could not be matched to an
-assessed requirement; the UI and export disclose these without silently crediting them.
-
-The direct request above is for local diagnostics, with `INTERNAL_API_SECRET`
-exported in the shell. Normal visitors use the Next.js `/api/analyze` endpoint;
-Next.js supplies the service credentials and a pseudonymous client identifier.
-
-## Analysis protection
-
-The backend authenticates the service secret before parsing analysis request bodies.
-The controller validates input, reserves quota, runs the service, then releases the
-concurrency slot. The service coordinates the AI integration and heuristic fallback.
-Health endpoints remain public and do not contact Redis.
-
-| Variable | Default | Scope |
-| --- | --- | --- |
-| `ANALYSIS_RATE_LIMIT` | 3 | Admitted analyses per client per short window |
-| `ANALYSIS_WINDOW_SECONDS` | 600 | Short window, starting with the first admission |
-| `ANALYSIS_DAILY_LIMIT` | 10 | Admitted analyses per client per UTC day |
-| `ANALYSIS_GLOBAL_DAILY_LIMIT` | 50 | Admitted analyses across all clients per UTC day |
-| `ANALYSIS_MAX_CONCURRENT` | 2 | In-progress analyses across all backend instances |
-
-All instances must share the same Redis database and limits. One Lua operation
-checks and reserves all quotas atomically, using Redis time. Invalid inputs,
-unauthorised requests, and rejected reservations do not consume these quotas.
-Admitted attempts remain charged to the counters even if the AI request fails or
-returns the heuristic fallback. These are request quotas, not monetary budgets.
-
-Concurrency reservations have unique IDs and expire after `OPENAI_TIMEOUT_MS` plus
-60 seconds if a process crashes. Releasing a slot does not refund daily or short-window
-quota. If release fails, the reservation remains until it expires. This bounds work
-tracked by the application; cancellation cannot guarantee that a remote provider
-has already stopped processing a request.
-
-Redis failures return `503` before analysis begins. There is no in-memory fallback.
-Limits return `429`, a stable error code, and `Retry-After`. Configure Redis with
-persistence and a `noeviction` policy; data loss, eviction, or deleting the volume
-would reset counters. Redis should be private, authenticated, and use TLS when
-accessed across hosts. Use separate Redis databases for different environments.
-
-Redis stores counters, expiring reservation IDs, and HMAC-derived client identifiers.
-It does not store CVs, job adverts, or raw client IP addresses. IP-derived identifiers
-are pseudonymous rather than anonymous. Rotating the service secret changes the
-per-client identifiers but does not reset the global daily counter.
-
-## Production configuration
-
-Keep the backend private where possible. If it has a public HTTPS address, every
-analysis request still requires the service secret. Rotate the secret in both
-services together. The secret authenticates Next.js; it does not authenticate a
-visitor. Visitor abuse is controlled by the quotas.
-
-The frontend also needs `APP_ORIGIN` and a trustworthy, single-IP ingress header;
-see its README. Do not allow clients to bypass the ingress that sets that header.
-The frontend requires HTTPS for backend connections outside loopback.
-
-Set `BACKEND_TIMEOUT_MS` on the frontend above `OPENAI_TIMEOUT_MS` plus the Redis
-connection/command allowance. Defaults are 75 and 60 seconds respectively.
-Provider spending limits must be configured separately in OpenAI by the project owner.
-
-After pulling backend changes or editing `.env`, restart `npm run dev`. A backend
-process started before the clarification feature can still return an older report
-without `questions` and `cvImprovements`; the current frontend requires these fields
-even when the arrays are empty. A successful `/health` check alone does not verify
-that the running analysis code is up to date.
-
-## Security checks
-
-API errors use controlled public codes and messages in every environment. The
-global handler never returns exception names, stack traces, parser diagnostics
-or dependency error messages. Missing and malformed URLs receive the same
-protection; unknown routes and query strings are not echoed back. Validation
-issues identify only supported fields and use fixed instructions.
-
-Each request receives a server-generated UUID in `X-Request-Id`, also included
-in errors from the global handler. Client-supplied request IDs are ignored.
-Unexpected exceptions are logged on the server with that reference (`reqId`);
-parser and other client errors are logged without their raw error messages.
-Error responses use `Cache-Control: no-store`.
-
-`npm test` exercises authentication, validation, fail-closed behaviour, forwarding,
-IP normalisation, body limits, error sanitisation and quota error propagation
-without calling OpenAI.
-
-To additionally exercise atomic Lua reservations against a disposable Redis instance:
+For a local diagnostic request, run this from `backend/` after configuring your own `.env`. It loads those values into the Bash session and makes an analysis request, which consumes application quota and may call OpenAI:
 
 ```bash
-REDIS_TEST_URL=redis://127.0.0.1:6379 npm test
+set -a
+source .env
+set +a
+
+curl -sS http://127.0.0.1:4000/api/v1/analyses \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $INTERNAL_API_SECRET" \
+  -H 'x-jobfit-client: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+  --data-binary @- <<'JSON'
+{
+  "cvText": "Project Support Officer with four years coordinating programmes. I prepare monthly Excel reports using pivot tables, maintain action logs and communicate progress to stakeholders.",
+  "jobText": "Project Support Officer required. Essential: experience preparing reports in Excel and willingness to travel to other offices when needed.",
+  "seniority": "mid",
+  "language": "en"
+}
+JSON
 ```
 
-Integration tests use random key namespaces and remove only their own keys. They
-cover multiple application instances, connection restarts, concurrent reservations,
-daily quotas, expiring windows, and abandoned leases. They are skipped if
-`REDIS_TEST_URL` is unset; use a dedicated local/test Redis instance.
+The fixed client identity above is for local diagnostics. Browser requests receive a server-generated HMAC identity from Next.js.
+
+### Clarification submission
+
+Send the original input fields again with a `clarifications` array. Reuse the IDs and labels returned in the first report. The following is the additional field to include, not a standalone request:
+
+```json
+{
+  "clarifications": [
+    {
+      "requirementId": "excel-reporting",
+      "requirement": "Excel reporting",
+      "kind": "evidence",
+      "response": "yes",
+      "details": "I prepare monthly reports using pivot tables and lookup formulas."
+    },
+    {
+      "requirementId": "travel",
+      "requirement": "Willingness to travel to other offices",
+      "kind": "condition",
+      "response": "yes",
+      "details": ""
+    }
+  ]
+}
+```
+
+| Answer field | Rule |
+| --- | --- |
+| `requirementId` | Trimmed string, 1–80 characters, unique within the array. |
+| `requirement` | Trimmed string, 1–160 characters. |
+| `kind` | Optional `evidence` or `condition`; omission uses evidence validation rules. |
+| `response` | `yes`, `partly` or `no`. |
+| `details` | Required string, at most 1,000 characters after trimming. May be empty for a negative answer or a positive condition answer. |
+
+`partly` always requires details. A positive skill answer also requires a level or example. Answers are self-reported information and do not alter the CV text.
+
+Providing `clarifications`, including an empty array, finishes the clarification round and returns no further questions. Posting it still reserves quota. The frontend's skip action instead uses the existing draft locally without posting again.
+
+### Report response
+
+The following illustrates the response shape; exact assessment content and weights depend on the supplied material and analysis mode:
+
+```json
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "language": "en",
+  "seniority": "mid",
+  "roleTitle": "Project Support Officer",
+  "score": 100,
+  "summary": "1 of 1 skills and experience requirements have sufficient support. 0 still need clarification.",
+  "strengths": ["Excel reporting"],
+  "gaps": [],
+  "requirements": [
+    {
+      "id": "excel-reporting",
+      "label": "Excel reporting",
+      "kind": "evidence",
+      "category": "required",
+      "categoryLabel": "required",
+      "status": "si",
+      "evidence": "The CV describes monthly Excel reports using pivot tables.",
+      "evidenceSource": "cv",
+      "weight": 10,
+      "cvAssessability": "yes",
+      "cvAssessmentReason": "The CV provides a specific reporting example.",
+      "clarificationMaterial": false
+    },
+    {
+      "id": "travel",
+      "label": "Willingness to travel to other offices",
+      "kind": "condition",
+      "category": "required",
+      "categoryLabel": "required",
+      "status": "unknown",
+      "evidence": "Your confirmation is needed; this cannot be determined from the CV alone.",
+      "evidenceSource": "unknown",
+      "weight": 1,
+      "cvAssessability": "no",
+      "cvAssessmentReason": "This condition needs your confirmation; the CV does not establish your availability.",
+      "clarificationMaterial": true
+    }
+  ],
+  "source": "ai",
+  "questions": [
+    {
+      "requirementId": "travel",
+      "requirement": "Willingness to travel to other offices",
+      "kind": "condition",
+      "question": "Does this condition work for you?",
+      "reason": "This condition needs your confirmation; the CV does not establish your availability."
+    }
+  ],
+  "cvImprovements": [],
+  "unassessedClarifications": []
+}
+```
+
+The API uses stable status codes (`si`, `parcial`, `no`, `unknown`) and provenance values (`cv`, `user`, `unknown`) in both languages. User-facing text follows the requested locale. All report arrays, including `questions`, are present even when empty.
+
+The response combines skills and conditions in `requirements`. The frontend's downloaded JSON separates these into `requirements` and `conditions` and localises status labels. The API response and downloaded format are therefore intentionally different.
+
+### Error responses
+
+| Status | Typical cause |
+| --- | --- |
+| `400` | Invalid input, malformed body or missing/invalid client identity. |
+| `401` | Missing or incorrect service credentials. |
+| `413` | Request body exceeds the configured limit. |
+| `415` | Unsupported request content type. |
+| `429` | Application rate, daily or concurrency limit reached. |
+| `503` | Redis quota checks are unavailable. |
+| `500` | Unexpected server failure. |
+
+AI provider failures normally produce a successful, labelled heuristic report rather than a raw provider error. Next.js sanitises backend errors before exposing them to the browser and may map internal failures to `503 AnalysisUnavailable`.
+
+## Shared quotas
+
+One Redis Lua operation checks and reserves the per-client short window, per-client daily quota, global daily quota and concurrency slot atomically. All backend instances must use the same Redis database and limits.
+
+- The short window begins with the first admitted request and lasts `ANALYSIS_WINDOW_SECONDS`.
+- Daily counters expire at the next UTC midnight, using Redis server time.
+- Each admitted request gets a unique concurrency reservation. The controller releases it after analysis.
+- Abandoned reservations expire after `OPENAI_TIMEOUT_MS` plus 60 seconds; the default lease is two minutes.
+- Invalid, unauthorised or quota-rejected requests do not consume a reservation.
+- Admitted attempts remain charged if AI fails or the fallback runs. Releasing a slot does not refund request quota.
+- Redis failures block analysis with `503`; there is no in-memory quota fallback.
+
+Quota rejections return `Retry-After` and one of `RateLimitExceeded`, `DailyLimitExceeded`, `GlobalLimitExceeded` or `AnalysisBusy`.
+
+The Compose configuration in [compose.redis.yml](../compose.redis.yml) enables append-only persistence, `appendfsync always` and `noeviction`, with a named data volume. Losing or deleting Redis data resets the corresponding counters. Rotating the service secret changes per-client identities but does not reset the global counter.
+
+These are request limits, not monetary budgets. Provider spending settings are configured separately. Client identities are IP-derived, so shared networks may share limits; local development without a trusted IP header uses one shared identity.
+
+## Security and privacy
+
+The analysis route checks the shared service credential with a timing-safe comparison and validates the client identity before parsing the body. Zod validation rejects unknown fields, enforces text/answer limits and runs before any quota reservation or provider call.
+
+CVs, adverts and answers are passed as untrusted data in the AI request. The backend checks output structure and applies report rules after model assessment. Prompt instructions reduce the risk of misinterpreting submitted instructions but do not guarantee correct model decisions.
+
+Redis stores counters, hashed client identifiers and reservation IDs. It does not store CVs or reports. AI mode sends the supplied material to OpenAI with `store: false`; heuristic mode processes it locally. The application has no report database or candidate account system.
+
+Public errors do not expose stack traces, parser messages or raw provider errors. Each request receives a server-generated UUID in `X-Request-Id`; client-supplied request IDs are ignored. Logs redact service credentials and client identity headers, suppress raw parser diagnostics, and categorise AI failures without logging the provider's raw error message. Unexpected server errors are logged for diagnosis. Analysis/error responses use `Cache-Control: no-store`.
+
+For deployment, keep Redis private and configure authentication/TLS for remote access. Keep the API private where possible, configure the shared secret in both services, set the intended CORS origin and provide the frontend with a trusted ingress IP header. The frontend requires HTTPS for remote backend connections. Service authentication does not replace visitor accounts, ingress traffic controls or deployment monitoring.
+
+## Testing
+
+Install dependencies in both applications: backend tests import the frontend proxy and input validator.
+
+From `backend/`:
+
+```bash
+npm run typecheck
+npm run build
+npm test
+```
+
+The normal suite uses local analysis, mocked provider calls and test quota stores. It does not call OpenAI. Coverage includes:
+
+- Authentication, input validation and the public analysis contract.
+- Frontend/backend agreement on accepted input and clarification limits.
+- Same-origin proxy behaviour, bounded uploads, IP normalisation and safe error forwarding.
+- Missing versus negative evidence, candidate answers, conditions and score calculation.
+- Incomplete AI output, timeouts and safe fallback reports.
+- Public error sanitisation and request references.
+
+### Redis integration tests
+
+Use a dedicated test Redis instance or database. For a local Redis server with database 15 available:
+
+```bash
+REDIS_TEST_URL=redis://127.0.0.1:6379/15 npm test -- tests/analysis-quota.integration.test.ts
+```
+
+Without `REDIS_TEST_URL`, these tests are skipped. They use random namespaces and delete only their own keys. They exercise cross-instance limits, reconnects, concurrent reservations, daily expiry, window expiry and abandoned leases.
+
+An unreachable test Redis commonly produces `Connection is closed` or `MaxRetriesPerRequestError`. Confirm connectivity to the same host, port and database before running the integration suite.
+
+### Dependency maintenance
+
+Run `npm audit` in this directory to review all dependencies, or `npm audit --omit=dev` for production dependencies. Include `package-lock.json` with dependency changes and rerun the relevant checks. The frontend has a separate dependency tree and audit.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `Invalid environment configuration` at startup | Start from `backend/`, create `.env`, and set a valid service secret and Redis URL. |
+| `/health` succeeds but analysis returns `503` | Health is process-only; verify Redis connectivity and quota-store configuration. |
+| Direct API request returns `401` | The shell credential must match the running backend's `INTERNAL_API_SECRET`. |
+| Analysis consistently uses the heuristic fallback | Check the key, model, provider availability and deadline. AI failure logs include a controlled reason category. |
+| Frontend reports unavailable after receiving an older report | Restart the backend; rebuild first if running compiled JavaScript. The frontend expects the current question and report fields. |
+| A clarification submission returns `400` | Reuse returned IDs, respect the 12-answer limit and provide details where required. |
+| Analysis ends at the proxy before the backend completes | Keep `BACKEND_TIMEOUT_MS` above `OPENAI_TIMEOUT_MS` plus processing overhead. |
+| A valid request returns `429` | Respect the retry period; admitted failures and clarification submissions also count towards limits. |
+
+Public deployment remains a separate project step. The supplied Compose file runs Redis only; it does not containerise or deploy either application.
