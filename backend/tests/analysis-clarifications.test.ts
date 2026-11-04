@@ -82,11 +82,11 @@ describe("clarifying missing evidence", () => {
     expect(quotaStore.acquire).not.toHaveBeenCalled();
   });
 
-  it("limits questions and prioritises essential requirements before optional ones", () => {
+  it("asks every material question and prioritises essential requirements before optional ones", () => {
     const requirements: AssessedRequirement[] = [0, 1, 2, 3, 4].map((id) => ({
       id: String(id), label: `Requirement ${id}`, category: id === 4 ? "required" : "preferred", categoryLabel: "required",
       status: "unknown", evidence: "Not mentioned", evidenceSource: "unknown", weight: id + 1
     }));
-    expect(buildReport(sampleInput, "Developer", requirements, "ai").questions.map((item) => item.requirementId)).toEqual(["4", "3", "2"]);
+    expect(buildReport(sampleInput, "Developer", requirements, "ai").questions.map((item) => item.requirementId)).toEqual(["4", "3", "2", "1", "0"]);
   });
 });

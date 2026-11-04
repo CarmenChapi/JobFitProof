@@ -16,7 +16,7 @@ const envSchema = z.object({
   ANALYSIS_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   OPENAI_API_KEY: z.preprocess((value) => value === "" ? undefined : value, z.string().min(1).optional()),
   OPENAI_MODEL: z.string().min(1).default("gpt-5-mini"),
-  OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(30_000)
+  OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(60_000)
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

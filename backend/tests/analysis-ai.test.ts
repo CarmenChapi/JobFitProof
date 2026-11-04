@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { APIConnectionTimeoutError, APIUserAbortError } from "openai/error";
 
 const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
 vi.mock("openai", () => ({ default: class { responses = { parse }; } }));
@@ -10,13 +11,37 @@ import { sampleInput } from "./helpers.js";
 
 const requirement = {
   id: "english", label: "English B2", category: "required", status: "unknown", evidence: "English is not mentioned in the CV.",
-  evidenceSource: "unknown", clarificationId: null, question: "What is your English level?", weight: 10
+  evidenceSource: "unknown", clarificationId: null, question: "What is your English level?", weight: 10,
+  kind: "evidence", cvAssessability: "partially", cvAssessmentReason: "The level is not stated.", clarificationMaterial: true
 };
 const input = { ...sampleInput, jobText: `${sampleInput.jobText} English B2 is required.` };
 const answer = { requirementId: "english", requirement: "English B2", response: "yes" as const, details: "C1; I lead weekly client meetings in English." };
 afterEach(() => { vi.restoreAllMocks(); parse.mockReset(); });
 
 describe("AI clarification reports", () => {
+  it.each([APIConnectionTimeoutError, APIUserAbortError])("returns a complete fallback contract after %s without logging submitted data", async (ErrorType) => {
+    const sensitive = "Private CV content and provider credentials";
+    parse.mockRejectedValue(new ErrorType({ message: sensitive }));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const report = await createAnalysis(input);
+    expect(report).toMatchObject({
+      source: "heuristic",
+      questions: expect.any(Array),
+      requirements: expect.any(Array),
+      cvImprovements: [],
+      unassessedClarifications: []
+    });
+    expect(report.questions).toContainEqual(expect.objectContaining({ requirementId: "english" }));
+    expect(log).toHaveBeenCalledWith("AI analysis failed; using heuristic fallback", { reason: "timeout" });
+    expect(JSON.stringify(log.mock.calls)).not.toContain(sensitive);
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not accept an incomplete provider response as a finished analysis", async () => {
+    parse.mockResolvedValue({ status: "incomplete", output_parsed: { roleTitle: "Developer", requirements: [requirement] } });
+    await expect(createAiAnalysis(input)).rejects.toThrow("OpenAI returned no structured analysis");
+  });
+
   it("asks before classifying missing English as a gap", async () => {
     parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [requirement] } });
     const report = await createAiAnalysis(input);
@@ -32,6 +57,8 @@ describe("AI clarification reports", () => {
     const request = parse.mock.calls[0][0];
     expect(JSON.parse(request.input)).toMatchObject({ cv: input.cvText, clarifications: [answer] });
     expect(request.store).toBe(false);
+    expect(request.max_output_tokens).toBe(6000);
+    expect(request.reasoning).toEqual({ effort: "low" });
     expect(report.requirements[0]).toMatchObject({ status: "si", evidenceSource: "user" });
     expect(report.score).toBe(100);
     expect(report.cvImprovements).toEqual(["English B2"]);

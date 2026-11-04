@@ -6,6 +6,7 @@ import type {
   RequirementStatus
 } from "./analysis.schema.js";
 import { buildReport, type AssessedRequirement } from "./analysis.report.js";
+import { isPracticalCondition } from "./analysis.conditions.js";
 
 type RequirementId =
   | "react"
@@ -256,5 +257,19 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
     }
     return result;
   });
+  const conditions = [...new Set(input.jobText.split(/\n|;|(?<=[.!?])\s+/)
+    .map((part) => part.replace(/^[\s*•-]+/, "").trim())
+    // Never truncate a practical condition: a qualifier could change its meaning.
+    .filter((part) => part.length > 0 && part.length <= 160 && isPracticalCondition(part)))];
+  for (const [index, label] of conditions.entries()) {
+    if (requirements.length >= 12) break;
+    const id = `condition-${index + 1}`;
+    const answer = input.clarifications?.find((candidate) => candidate.requirementId === id && candidate.requirement === label);
+    requirements.push({
+      id, label, kind: "condition", category: "required", categoryLabel: copy.categories.required,
+      status: "unknown", evidence: copy.evidence.unknown(label), evidenceSource: "unknown", weight: 1,
+      cvAssessability: "no", clarificationMaterial: true, answerId: answer?.requirementId
+    });
+  }
   return buildReport(input, inferRoleTitle(input.jobText, copy), requirements, "heuristic");
 }
