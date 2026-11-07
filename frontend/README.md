@@ -12,6 +12,7 @@ The JobFitProof frontend is a bilingual Next.js workbench for comparing a CV wit
 - Display skills evidence, practical conditions, uncertainty and suggested CV improvements.
 - Export the final report as JSON.
 - Validate and forward requests through a protected Next.js server route.
+- Validate returned reports before forwarding them or updating the interface.
 
 Requirement assessment, score calculation and quota enforcement belong to the backend. The frontend displays the returned assessment and translates interface labels.
 
@@ -83,19 +84,23 @@ app/
 ├── globals.css                Theme, shared styles and motion preferences
 └── api/analyze/route.ts        POST handler delegating to the server proxy
 components/
-├── jobfit-workbench.tsx        Input, request lifecycle, report and JSON export
+├── jobfit-workbench.tsx        Input, request lifecycle and workflow state
+├── analysis-report-view.tsx   Report presentation, conditions and evidence
+├── requirement-sources.tsx    Accessible source disclosure for each requirement
 ├── clarification-form.tsx     Grouped questions, answer validation and progress
 ├── report-placeholder.tsx     Empty and loading states
 ├── language-provider.tsx      Language context and local preference persistence
 └── ui/button.tsx              Shared Base UI button
 lib/
 ├── analysis-input.ts          Runtime input validation for browser and proxy
-├── analysis-report.ts         Report and question TypeScript contracts
+├── analysis-report.ts         Report types and shared runtime response validation
+├── report-export.ts           Localised JSON payload and download filename
 ├── i18n.ts                    British English and Castilian Spanish copy
 ├── utils.ts                   Class-name composition
 └── server/
     ├── analysis-proxy.ts       Origin checks, bounded input and authenticated forwarding
-    └── upstream-errors.ts      Public error sanitisation and response headers
+    ├── upstream-errors.ts      Public error sanitisation and response headers
+    └── upstream-report.ts      Bounded response reading and report validation
 ```
 
 ## Interface and state
@@ -105,6 +110,8 @@ lib/
 The workbench starts with example text. Users can load the example again, clear the inputs or supply their own text. Each text must contain 80–50,000 characters after trimming. Target levels are `junior`, `mid` and `senior`.
 
 Analyses are submitted to `/api/analyze`. The browser never calls OpenAI or the backend analysis endpoint directly. Input errors, usage limits and unavailable services produce localised messages while preserving the entered text.
+
+Reports are checked at runtime before entering React state, including statuses, unique requirement IDs and question-to-requirement references. A partial or outdated backend contract produces a controlled error instead of a rendering failure. Report language and target level must match the submitted request.
 
 An `AbortController` cancels an in-flight request when the input, language or target level changes. A request identity check prevents an older response from replacing newer state. Editing these inputs also clears the current draft, report and clarification answers. There are no automatic UI retries.
 
@@ -125,18 +132,22 @@ There is no second round of questions. If a clarification submission fails, the 
 
 The report displays the skills score, assessed role, summary, requirement-level evidence, provenance, unresolved information and suggested next steps. Practical conditions appear in their own section and do not change the skills score. The score explanation makes the treatment of unknown requirements explicit.
 
+Each skill and practical condition has a keyboard-accessible **View sources** disclosure. It shows the original job advert excerpt, up to two CV passages and the candidate's accepted clarification response and details. Missing CV evidence is explicitly distinguished from a confirmed gap. Unknown requirements also show the reason clarification is needed. Quotes keep the source language and are rendered as plain text, including any HTML-like content in the supplied documents.
+
+The server proxy and browser both check the returned quote text and offsets against the submitted documents, and clarification sources against the submitted answers. An unverifiable response is rejected before rendering. A matched quote establishes its origin, not the truth of a claim or the accuracy of its interpretation.
+
 The API returns a combined `requirements` array. The frontend separates it by `kind` for display and download:
 
 | Export field | Content |
 | --- | --- |
-| `generatedAt`, `language`, `seniority`, `roleTitle` | Export metadata and assessment context; `generatedAt` is the export time. |
+| `generatedAt`, `language`, `seniority`, `roleTitle` | Assessment context; `generatedAt` preserves the backend's assessment timestamp. |
 | `score`, `scoreExplanation`, `source` | Skills score, explanation and `ai` or `heuristic` source. |
 | `requirements` | Skills and experience, with localised status and provenance labels. |
 | `conditions` | Practical conditions, with their own compatibility labels. |
 | `summary`, `strengths`, `gaps` | Assessment summary and confirmed skills findings. |
 | `cvImprovements`, `unassessedClarifications` | Suggested additions and answers that could not be assessed. |
 
-Requirement exports retain CV assessability, its reason and materiality. If there are no skills requirements, the interface displays a dash and exports `score: null`. Exported status labels are localised text rather than the raw API status codes. The downloaded file does not include the full original CV or advert, although evidence and answers may quote personal information from them.
+Requirement exports retain CV assessability, its reason, materiality and the `sources` object. Source indices are UTF-16 offsets into the trimmed request fields, as described in the [backend source contract](../backend/README.md#source-traceability). If there are no skills requirements, the interface displays a dash and exports `score: null`. Exported status labels are localised text rather than the raw API status codes. The download does not attach the input documents; its excerpts and answers may contain personal information, and a short input can fit entirely inside an excerpt.
 
 ### Language and accessibility
 
@@ -161,6 +172,8 @@ Before forwarding, the proxy:
 7. Sends the request to `/api/v1/analyses` with a deadline, no caching and redirects disabled.
 
 Unknown input fields are rejected. The browser and proxy use the same input parser, while the backend independently validates its Zod schema. The [backend API documentation](../backend/README.md#api-reference) is the reference for field names and limits.
+
+On success, the proxy reads at most **256 KiB** of UTF-8 report data under the same upstream deadline. It validates the complete report contract, rejects unexpected fields and checks the requested language and target level. Invalid, oversized or stalled responses become `503 AnalysisUnavailable`; their contents are not forwarded. Response validation is shared with the browser.
 
 ### Environment variables
 
@@ -200,17 +213,22 @@ npm run lint
 npm run build -- --webpack
 ```
 
-From the repository root, run the tests that directly exercise frontend server behaviour and input parity:
+From the repository root, run the tests that directly exercise frontend server behaviour, contract parity and JSON export:
 
 ```bash
-npm --prefix backend test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts
+npm --prefix backend test -- tests/frontend-proxy.test.ts tests/analysis-input.test.ts tests/frontend-report.test.ts
 ```
 
-Both applications' dependencies must be installed. These tests use mocked upstream requests and do not call OpenAI or require Redis. The repository currently has no frontend `npm test` script or committed browser-test suite.
+Both applications' dependencies must be installed. These tests use controlled upstream responses and Fastify injection, including a complete clarification round through both server handlers in English and Spanish. They cover malformed reports, response size/deadline limits, answer provenance, separate condition exports and preservation of the assessment timestamp. They do not call OpenAI or require Redis. The repository currently has no frontend `npm test` script or committed browser-test suite.
 
 After interface changes, manually check both languages, mobile and desktop layouts, keyboard focus, input reset, clarification validation, loading/error states and JSON export. Use the backend test suite when changing the API contract.
 
-Run `npm audit` from this directory to review dependency advisories. Dependency changes should include the lockfile. `package.json` contains a scoped override for the optional ESLint WASM resolver; review that override when updating its dependency chain.
+Run `npm audit` from this directory to review dependency advisories. Dependency changes should include the lockfile. `package.json` contains two narrowly scoped development-tool overrides:
+
+- The optional ESLint WASM resolver uses `@napi-rs/wasm-runtime` 1.1.6.
+- `@typescript-eslint/typescript-estree` 8.65.0 uses `minimatch` 11.0.1 to address [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249). Other minimatch consumers keep their declared versions. The replacement preserves the CommonJS API used by the parser and supports the project's Node.js version.
+
+Review these overrides when updating their parent packages; remove them once the upstream dependency ranges include a suitable fixed release. Recheck lint, builds and the audit after each change.
 
 ## Troubleshooting
 

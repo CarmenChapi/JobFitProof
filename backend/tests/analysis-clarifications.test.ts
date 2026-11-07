@@ -40,6 +40,28 @@ describe("clarifying missing evidence", () => {
     expect(report.score).toBe(0);
   });
 
+  it("does not interpret the ordinary word next as Next.js", () => {
+    const report = createHeuristicAnalysis({ ...sampleInput, jobText: "Your next role is a gardening position maintaining trees and lawns, seasonal planting and flower beds." });
+    expect(report.requirements).toEqual([]);
+  });
+
+  it("leaves a combined answer unassessed instead of applying it to multiple skills", () => {
+    const report = createHeuristicAnalysis({ ...input, clarifications: [{
+      requirementId: "english", requirement: "React and English B2", response: "yes", details: "B2; weekly client meetings.",
+    }] });
+    expect(report.requirements.filter((item) => item.evidenceSource === "user")).toEqual([]);
+    expect(report.unassessedClarifications).toEqual(["React and English B2"]);
+  });
+
+  it("does not use practical availability as proof of a skill", () => {
+    const report = createHeuristicAnalysis({ ...input, clarifications: [{
+      requirementId: "english", requirement: "Working hours overlapping with the English team", kind: "condition",
+      response: "yes", details: "I can join the daily meeting.",
+    }] });
+    expect(report.requirements.find((item) => item.id === "english")).toMatchObject({ status: "unknown", evidenceSource: "unknown" });
+    expect(report.unassessedClarifications).toHaveLength(1);
+  });
+
   it.each(["en", "es"] as const)("supports one optional round in %s through the API", async (language) => {
     const quotaStore = createQuotaStore();
     const app = buildApp({ quotaStore }); apps.push(app);

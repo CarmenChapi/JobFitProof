@@ -13,6 +13,7 @@ The project is a local MVP intended to demonstrate an end-to-end product: a bili
 - Compares pasted CV and job advert text against up to 12 assessed requirements.
 - Supports British English (`en-GB`) and Castilian Spanish (`es-ES`), with a Junior, Mid or Senior target level.
 - Distinguishes evidence in the CV from information supplied in clarification answers.
+- Shows the original job advert and CV excerpts, plus any candidate answer, behind each requirement's assessment.
 - Asks about material uncertainties instead of automatically treating missing information as a confirmed gap.
 - Separates practical conditions, such as working hours and travel, from skills and experience.
 - Produces a weighted evidence score, requirement-level explanations and suggested next steps.
@@ -28,6 +29,10 @@ The project is a local MVP intended to demonstrate an end-to-end product: a bili
 5. Review the report and export it as JSON.
 
 There is one optional clarification round. Submitting answers runs another analysis and consumes another quota reservation. Skipping all questions displays the existing draft without another API request. The application does not rewrite the original CV.
+
+In the report, expand **View sources** beneath a requirement to inspect the job advert excerpt, relevant CV passages and any clarification answer. Excerpts retain their original language and wording. If there is no linked CV passage, the report says so without treating that absence as a confirmed gap. Source excerpts are included in the JSON export.
+
+The application checks that quotations occur in the submitted text. This checks their origin; it does not independently verify the candidate's claims or guarantee that the assessment interprets them correctly.
 
 ### How clarification works
 
@@ -78,7 +83,7 @@ flowchart LR
 
 | Component | Responsibility |
 | --- | --- |
-| [Frontend](frontend/README.md) | Interface, language preference, clarification state, report display and JSON export. Its server route validates and forwards requests. |
+| [Frontend](frontend/README.md) | Interface, language preference, clarification state, report display and JSON export. Its server route validates requests and returned reports. |
 | [Backend](backend/README.md) | Service authentication, independent validation, quota coordination, AI/fallback analysis and report calculation. |
 | Redis | Shared rate limits, daily counters and expiring concurrency reservations. |
 | OpenAI | Structured requirement assessment from the supplied CV, advert and optional answers. |
@@ -234,9 +239,27 @@ npm --prefix backend run build
 npm --prefix backend test
 ```
 
-The normal test suite does not call OpenAI. Redis integration tests are skipped unless `REDIS_TEST_URL` is provided; see [backend testing](backend/README.md#testing) for the separate command. Tests in `backend/tests/` also exercise the frontend proxy and input validator, so both dependency sets must be installed.
+The normal test suite does not call OpenAI. Redis integration tests are skipped unless `REDIS_TEST_URL` is provided; see [backend testing](backend/README.md#testing) for the separate command. Tests in `backend/tests/` also exercise the frontend proxy, input/report validators and export, so both dependency sets must be installed. Integration cases run a complete clarification round through the Next.js handler and Fastify in both languages, with a test quota store.
 
 For dependency checks, run `npm audit` inside each application. There is currently no committed automated browser-test suite.
+
+### Manual journey check
+
+With the applications running, check the following in both languages and at desktop and mobile widths:
+
+| Action | Expected result |
+| --- | --- |
+| Load the example and select Analyse | A loading state, then clarification questions or a report; the analysis source is identified. |
+| Confirm a practical condition with Yes or No | No evidence textarea is required. Depends requires context. |
+| Answer a skill question positively | A level or specific example is required before submission. |
+| Leave questions unanswered | The report preserves uncertainty; missing information is not a confirmed gap. |
+| Continue without answering | The existing draft is shown without another API request. |
+| Edit text, language or target level during analysis | The old request is cancelled and cannot overwrite the new state. |
+| Export a completed report | Valid JSON with separate skills and conditions, provenance and the original assessment timestamp. |
+| Open View sources for a skill or condition | Original excerpts match the supplied documents; clarification responses match the submitted answers. |
+| Simulate an unavailable or incompatible backend | A controlled error preserves the inputs and any clarification answers. |
+
+The automated suite covers malformed responses and quota failures without consuming provider credit. A browser check with AI enabled is a separate live integration check and may incur charges.
 
 ## Security and data handling
 
@@ -246,7 +269,7 @@ Default limits are three admitted requests per client per ten-minute window, ten
 
 CVs, job adverts, answers and reports are held in browser memory during the session; only the language preference is stored in `localStorage`. Redis stores counters, hashed client identifiers and reservation IDs, not CV content. In AI mode, the supplied text and answers are sent to OpenAI with `store: false`. Downloaded reports may contain personal information from the submitted evidence.
 
-Public error responses use controlled messages. The API and proxy reject oversized or invalid inputs, and the proxy requires HTTPS for remote backend connections. Detailed controls and configuration are documented in the [frontend](frontend/README.md#server-proxy) and [backend](backend/README.md#security-and-privacy) READMEs.
+Public error responses use controlled messages. The API and proxy reject oversized or invalid inputs, and the proxy requires HTTPS for remote backend connections. Successful upstream reports are also size-bounded and validated before forwarding and rendering. Detailed controls and configuration are documented in the [frontend](frontend/README.md#server-proxy) and [backend](backend/README.md#security-and-privacy) READMEs.
 
 ## Limitations and next steps
 

@@ -7,6 +7,7 @@ import type {
 } from "./analysis.schema.js";
 import { buildReport, type AssessedRequirement } from "./analysis.report.js";
 import { isPracticalCondition } from "./analysis.conditions.js";
+import { findKeywordQuote } from "./analysis.sources.js";
 
 type RequirementId =
   | "react"
@@ -32,11 +33,6 @@ type RequirementDefinition = {
 
 type AnalysisCopy = {
   roleFallback: string;
-  summaries: {
-    high: string;
-    mid: string;
-    low: string;
-  };
   categories: Record<RequirementCategory, string>;
   requirements: Record<RequirementId, string>;
   evidence: Record<RequirementStatus, (label: string) => string>;
@@ -53,7 +49,7 @@ const requirementBank: RequirementDefinition[] = [
   {
     id: "next",
     category: "preferred",
-    patterns: ["next.js", "nextjs", "next "],
+    patterns: ["next.js", "nextjs"],
     relatedPatterns: ["server side", "ssr", "app router"],
     weight: 12
   },
@@ -116,11 +112,6 @@ const requirementBank: RequirementDefinition[] = [
 const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
   es: {
     roleFallback: "Rol objetivo",
-    summaries: {
-      high: "Buen encaje inicial. El CV ya muestra varias pruebas fuertes para esta oferta.",
-      mid: "Adecuación prometedora, con aspectos que se pueden mejorar antes de presentar la candidatura.",
-      low: "Conviene reforzar las evidencias clave antes de presentar la candidatura a este puesto."
-    },
     categories: {
       required: "imprescindible",
       preferred: "valorable"
@@ -149,11 +140,6 @@ const copyByLanguage: Record<AnalysisLanguage, AnalysisCopy> = {
   },
   en: {
     roleFallback: "Target role",
-    summaries: {
-      high: "Strong initial fit. The CV already provides several clear examples of relevant experience for this role.",
-      mid: "Promising fit, with gaps that can be improved before applying.",
-      low: "It is worth strengthening key evidence before applying to this role."
-    },
     categories: {
       required: "required",
       preferred: "preferred"
@@ -228,9 +214,15 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
         ? "parcial"
         : "unknown";
     const label = copy.requirements[requirement.id];
-    const answer = input.clarifications?.find((answer) => answer.requirementId === requirement.id ||
-      normalizeText(answer.requirement) === normalizeText(label) ||
-      hasAnyPattern(normalizeText(answer.requirement), requirement.patterns));
+    // AI IDs may differ from the fallback IDs. Reuse an answer only when its
+    // label identifies one skill; never spread a combined answer across skills.
+    const matchingAnswers = (input.clarifications ?? []).filter((answer) => {
+      if (isPracticalCondition(answer.requirement)) return false;
+      const answerLabel = normalizeText(answer.requirement);
+      const matches = requirementBank.filter((candidate) => hasAnyPattern(answerLabel, candidate.patterns));
+      return matches.length === 1 && matches[0]!.id === requirement.id;
+    });
+    const answer = matchingAnswers.length === 1 ? matchingAnswers[0] : undefined;
     const result: AssessedRequirement = {
       id: requirement.id,
       label,
@@ -239,6 +231,10 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
       status,
       evidence: copy.evidence[status](label),
       evidenceSource: status === "unknown" ? "unknown" : "cv",
+      jobQuote: findKeywordQuote(input.jobText, (fragment) => hasAnyPattern(normalizeText(fragment), requirement.patterns)),
+      cvQuotes: directMatch || relatedMatch ? [findKeywordQuote(input.cvText, (fragment) =>
+        hasAnyPattern(normalizeText(fragment), directMatch ? requirement.patterns : requirement.relatedPatterns ?? [])
+      )].filter((quote) => quote !== undefined) : [],
       weight: requirement.weight,
       question: requirement.id === "english"
         ? input.language === "es" ? "¿Cuál es tu nivel de inglés y en qué situaciones lo has utilizado?" : "What is your English level, and in which situations have you used it?"
@@ -268,7 +264,7 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
     requirements.push({
       id, label, kind: "condition", category: "required", categoryLabel: copy.categories.required,
       status: "unknown", evidence: copy.evidence.unknown(label), evidenceSource: "unknown", weight: 1,
-      cvAssessability: "no", clarificationMaterial: true, answerId: answer?.requirementId
+      cvAssessability: "no", clarificationMaterial: true, answerId: answer?.requirementId, jobQuote: label
     });
   }
   return buildReport(input, inferRoleTitle(input.jobText, copy), requirements, "heuristic");

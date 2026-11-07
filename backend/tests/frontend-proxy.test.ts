@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "../../frontend/app/api/analyze/route";
 import { buildApp } from "../src/app.js";
+import { createHeuristicAnalysis } from "../src/modules/analyses/analysis.heuristic.service.js";
 import { createQuotaStore, sampleInput, serviceHeaders } from "./helpers.js";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -12,7 +13,9 @@ beforeEach(() => {
   vi.stubEnv("TRUSTED_CLIENT_IP_HEADER", "x-verified-client-ip");
   vi.stubEnv("BACKEND_TIMEOUT_MS", "40000");
   vi.stubGlobal("fetch", fetchMock);
-  fetchMock.mockImplementation(async () => Response.json({ source: "heuristic" }));
+  fetchMock.mockImplementation(async (_url, options) =>
+    Response.json(createHeuristicAnalysis(JSON.parse(options!.body as string)))
+  );
 });
 
 afterEach(() => {
@@ -387,7 +390,7 @@ describe("Next.js analysis proxy", () => {
 
   it.each([200, 400, 429, 503])("preserves only a valid backend request reference (%s)", async (status) => {
     const requestId = "b2751e76-0986-4dab-a739-9615180b98aa";
-    fetchMock.mockResolvedValue(Response.json({ error: "DailyLimitExceeded" }, {
+    fetchMock.mockResolvedValue(Response.json(status === 200 ? createHeuristicAnalysis(sampleInput) : { error: "DailyLimitExceeded" }, {
       status, headers: { "x-request-id": requestId, "x-private-debug": "synthetic-secret" }
     }));
     const response = await POST(request());
@@ -398,6 +401,46 @@ describe("Next.js analysis proxy", () => {
   it("does not forward arbitrary text as a backend request reference", async () => {
     fetchMock.mockResolvedValue(Response.json({}, { status: 500, headers: { "x-request-id": "private backend details" } }));
     expect((await POST(request())).headers.get("x-request-id")).toBeNull();
+  });
+
+  it.each([
+    "private internal details", "null", '{"source":"heuristic"}',
+    JSON.stringify({ ...createHeuristicAnalysis(sampleInput), language: "es" }),
+    JSON.stringify({ ...createHeuristicAnalysis(sampleInput), seniority: "senior" }),
+    JSON.stringify({ ...createHeuristicAnalysis(sampleInput), debug: "private internal details" }),
+  ])("rejects malformed or mismatched success responses without exposing their contents (%#)", async (body) => {
+    const requestId = "b2751e76-0986-4dab-a739-9615180b98aa";
+    fetchMock.mockResolvedValue(new Response(body, { headers: { "x-request-id": requestId } }));
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("x-request-id")).toBe(requestId);
+    expect(await response.json()).toEqual({ error: "AnalysisUnavailable", message: "The analysis service is temporarily unavailable" });
+  });
+
+  it("cancels an oversized success body before buffering it", async () => {
+    const cancel = vi.fn();
+    fetchMock.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(256 * 1024 + 1)); }, cancel,
+    })));
+    expect((await POST(request())).status).toBe(503);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not forward a report containing an invented CV quotation", async () => {
+    const report = createHeuristicAnalysis(sampleInput);
+    report.requirements[0]!.sources.cv = [{ text: "Private invented evidence", start: 0, end: 25 }];
+    fetchMock.mockResolvedValue(Response.json(report));
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("Private invented evidence");
+  });
+
+  it("keeps the deadline active after success headers arrive", async () => {
+    vi.stubEnv("BACKEND_TIMEOUT_MS", "1000");
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    fetchMock.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel })));
+    expect((await POST(request())).status).toBe(503);
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("refuses to send the shared secret over remote HTTP", async () => {
@@ -430,6 +473,43 @@ describe("Next.js analysis proxy", () => {
       expect(response.status).toBe(200);
       expect((await response.json()).source).toBe("heuristic");
       expect(quotaStore.acquire).toHaveBeenCalledWith(forwardedIdentity());
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(["es", "en"] as const)("completes a clarification round through Next.js and Fastify in %s", async (language) => {
+    const quotaStore = createQuotaStore();
+    const app = buildApp({ quotaStore });
+    fetchMock.mockImplementation(async (_url, options) => {
+      const upstream = await app.inject({
+        method: "POST", url: "/api/v1/analyses",
+        headers: Object.fromEntries(new Headers(options!.headers)), payload: options!.body as string,
+      });
+      return new Response(upstream.body, { status: upstream.statusCode });
+    });
+    const input = { ...sampleInput, language,
+      jobText: `${sampleInput.jobText}\nEnglish B2 is required.\nWorking hours must overlap with UK/CET.`,
+    };
+    try {
+      const first = await POST(request({}, JSON.stringify(input)));
+      expect(first.status).toBe(200);
+      const draft = await first.json();
+      const final = await POST(request({}, JSON.stringify({ ...input, clarifications: draft.questions.map(
+        (question: { requirementId: string; requirement: string; kind: string }) => ({
+          requirementId: question.requirementId, requirement: question.requirement, kind: question.kind,
+          response: "yes", details: question.kind === "condition" ? "" : "B2; weekly client meetings.",
+        }),
+      ) })));
+      expect(final.status).toBe(200);
+      const report = await final.json();
+      expect(report.questions).toEqual([]);
+      expect(report.unassessedClarifications).toEqual([]);
+      expect(report.requirements).toContainEqual(expect.objectContaining({ id: "english", status: "parcial", evidenceSource: "user" }));
+      expect(report.requirements).toContainEqual(expect.objectContaining({ kind: "condition", status: "si", evidenceSource: "user" }));
+      expect(quotaStore.acquire).toHaveBeenCalledTimes(2);
+      expect(quotaStore.release).toHaveBeenCalledTimes(2);
+      expect(forwardedIdentity(0)).toBe(forwardedIdentity(1));
     } finally {
       await app.close();
     }

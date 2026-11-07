@@ -12,7 +12,8 @@ import { sampleInput } from "./helpers.js";
 const requirement = {
   id: "english", label: "English B2", category: "required", status: "unknown", evidence: "English is not mentioned in the CV.",
   evidenceSource: "unknown", clarificationId: null, question: "What is your English level?", weight: 10,
-  kind: "evidence", cvAssessability: "partially", cvAssessmentReason: "The level is not stated.", clarificationMaterial: true
+  kind: "evidence", cvAssessability: "partially", cvAssessmentReason: "The level is not stated.", clarificationMaterial: true,
+  jobQuote: "English B2 is required.", cvQuotes: []
 };
 const input = { ...sampleInput, jobText: `${sampleInput.jobText} English B2 is required.` };
 const answer = { requirementId: "english", requirement: "English B2", response: "yes" as const, details: "C1; I lead weekly client meetings in English." };
@@ -57,12 +58,16 @@ describe("AI clarification reports", () => {
     const request = parse.mock.calls[0][0];
     expect(JSON.parse(request.input)).toMatchObject({ cv: input.cvText, clarifications: [answer] });
     expect(request.store).toBe(false);
-    expect(request.max_output_tokens).toBe(6000);
+    expect(request.max_output_tokens).toBe(8000);
     expect(request.reasoning).toEqual({ effort: "low" });
     expect(report.requirements[0]).toMatchObject({ status: "si", evidenceSource: "user" });
     expect(report.score).toBe(100);
     expect(report.cvImprovements).toEqual(["English B2"]);
     expect(report.questions).toEqual([]);
+    expect(report.requirements[0]?.sources).toMatchObject({
+      job: { text: "English B2 is required." }, cv: [],
+      clarification: { requirementId: "english", response: "yes", details: answer.details }
+    });
   });
 
   it("does not turn a negative answer into a positive match", async () => {
@@ -91,6 +96,41 @@ describe("AI clarification reports", () => {
     const report = await createAiAnalysis({ ...input, clarifications: [] });
     expect(report.questions).toEqual([]);
     expect(report.requirements[0].status).toBe("unknown");
+  });
+
+  it("does not use an English answer to credit another requirement", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+      ...requirement, id: "leadership", label: "Team leadership", status: "si",
+      evidenceSource: "user", clarificationId: "english", evidence: answer.details,
+    }] } });
+    const report = await createAiAnalysis({ ...input, clarifications: [answer] });
+    expect(report.requirements[0]).toMatchObject({ status: "unknown", evidenceSource: "unknown" });
+    expect(report.score).toBe(0);
+    expect(report.unassessedClarifications).toEqual([answer.requirement]);
+  });
+
+  it("returns source-language excerpts while localising the assessment", async () => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Desarrollador", requirements: [{
+      ...requirement, status: "si", evidenceSource: "cv", cvQuotes: ["English B2.\nWeekly client meetings."],
+    }] } });
+    const supplied = { ...input, language: "es" as const, cvText: `${input.cvText}\nEnglish B2.\nWeekly client meetings.` };
+    const report = await createAiAnalysis(supplied);
+    expect(report.language).toBe("es");
+    expect(report.requirements[0]?.sources.cv[0]?.text).toBe("English B2.\nWeekly client meetings.");
+    expect(report.requirements[0]?.sources.job?.text).toBe("English B2 is required.");
+  });
+
+  it.each([
+    { jobQuote: "English C2 is required." },
+    { cvQuotes: ["Private invented CV quote"] },
+    { evidenceSource: "cv", status: "si", cvQuotes: [] },
+  ])("uses a safe fallback for untraceable AI evidence (%#)", async (invalid) => {
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{ ...requirement, ...invalid }] } });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const report = await createAnalysis(input);
+    expect(report.source).toBe("heuristic");
+    expect(JSON.stringify(report)).not.toContain("Private invented CV quote");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("Private invented CV quote");
   });
 
   it("retains answers and provenance if AI fails during the final review", async () => {
