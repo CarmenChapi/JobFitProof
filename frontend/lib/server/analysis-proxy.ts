@@ -4,6 +4,7 @@ import ipaddr from "ipaddr.js";
 
 import { parseAnalysisInput } from "../analysis-input";
 import { sanitiseUpstreamError, upstreamResponseHeaders } from "./upstream-errors";
+import { readUpstreamReport } from "./upstream-report";
 
 const maxBodyBytes = 512 * 1024;
 
@@ -101,7 +102,7 @@ async function readBody(request: Request): Promise<string> {
   }
 }
 
-function validateBody(body: string): string {
+function validateBody(body: string) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -112,7 +113,7 @@ function validateBody(body: string): string {
   if (!input) {
     throw new RequestBodyError(400, "ValidationError");
   }
-  return JSON.stringify(input);
+  return input;
 }
 
 function clientIdentity(request: Request, secret: string): string {
@@ -176,7 +177,8 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
     }
 
     const clientId = clientIdentity(request, secret);
-    const body = validateBody(await readBody(request));
+    const input = validateBody(await readBody(request));
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]);
     const response = await fetch(`${backend.origin}/api/v1/analyses`, {
       method: "POST",
       headers: {
@@ -184,10 +186,10 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
         authorization: `Bearer ${secret}`,
         "x-jobfit-client": clientId,
       },
-      body,
+      body: JSON.stringify(input),
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]),
+      signal,
     });
 
     if (response.status !== 200) {
@@ -195,7 +197,17 @@ export async function proxyAnalysis(request: Request): Promise<Response> {
     }
 
     const headers = upstreamResponseHeaders(response);
-    return new Response(await response.text(), { status: response.status, headers });
+    try {
+      const report = await readUpstreamReport(response, signal, input);
+      if (report.language !== input.language || report.seniority !== input.seniority) {
+        throw new Error("Mismatched analysis report");
+      }
+      return Response.json(report, { headers });
+    } catch {
+      return Response.json({
+        error: "AnalysisUnavailable", message: "The analysis service is temporarily unavailable",
+      }, { status: 503, headers });
+    }
   } catch (error) {
     if (error instanceof RequestBodyError) {
       return rejectRequest(request, error.status, error.code, "The request body could not be accepted");

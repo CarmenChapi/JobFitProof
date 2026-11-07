@@ -33,6 +33,18 @@ export type EvidenceSource = "cv" | "user" | "unknown";
 export type RequirementKind = "evidence" | "condition";
 export type CvAssessability = "yes" | "partially" | "no";
 
+export type SourceQuote = {
+  text: string;
+  start: number;
+  end: number;
+};
+
+export type RequirementSources = {
+  job: SourceQuote | null;
+  cv: SourceQuote[];
+  clarification: Pick<NonNullable<CreateAnalysisInput["clarifications"]>[number], "requirementId" | "response" | "details"> | null;
+};
+
 export type AnalysisRequirement = {
   id: string;
   label: string;
@@ -46,6 +58,7 @@ export type AnalysisRequirement = {
   cvAssessability: CvAssessability;
   cvAssessmentReason: string;
   clarificationMaterial: boolean;
+  sources: RequirementSources;
 };
 
 export type ClarificationQuestion = {

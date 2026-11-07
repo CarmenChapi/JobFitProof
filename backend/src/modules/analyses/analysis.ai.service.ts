@@ -5,6 +5,7 @@ import { z } from "zod";
 import { env } from "../../config/env.js";
 import { buildReport, type AssessedRequirement } from "./analysis.report.js";
 import type { AnalysisReport, CreateAnalysisInput } from "./analysis.schema.js";
+import { locateQuote, maxQuoteLength } from "./analysis.sources.js";
 
 export const aiReportSchema = z.object({
   roleTitle: z.string().min(1).max(120),
@@ -18,6 +19,8 @@ export const aiReportSchema = z.object({
         status: z.enum(["si", "parcial", "no", "unknown"]),
         evidence: z.string().min(1).max(500),
         evidenceSource: z.enum(["cv", "user", "unknown"]),
+        jobQuote: z.string().min(1).max(maxQuoteLength),
+        cvQuotes: z.array(z.string().min(1).max(maxQuoteLength)).max(2),
         clarificationId: z.string().min(1).max(80).nullable(),
         question: z.string().min(1).max(300).nullable(),
         cvAssessability: z.enum(["yes", "partially", "no"]),
@@ -50,7 +53,10 @@ Write one concise clarification question for cvAssessability "no", or "partially
 If clarification answers are provided, do not ask further questions; question is null. Unanswered requirements remain unknown or partial according to CV evidence.
 Classify requirements as "required" or "preferred" and assign higher weights to essential requirements.
 Keep evidence explanations constructive and specific, quoting or accurately summarising the relevant supplied evidence.
-Return user-facing text exclusively in the requested locale: British English (en-GB) or Castilian Spanish from Spain (es-ES).`;
+For every requirement, copy one short, contiguous, verbatim jobQuote from the job advert showing that criterion. Do not extract a requirement if you cannot quote it.
+Copy up to two short, contiguous, verbatim cvQuotes containing the CV evidence used in the assessment. Include the relevant context, level and negation. Use an empty array when there is no relevant CV evidence, and always for practical conditions.
+Prefer quotes of 80-160 characters, never more than 320. Never paraphrase, translate, combine separate passages or insert ellipses into quotes. An evidenceSource of "cv" requires a supporting cvQuote. Do not put candidate answers in cvQuotes: the application attaches those answers separately.
+Return explanations in the requested locale: British English (en-GB) or Castilian Spanish from Spain (es-ES). Quotes must retain the original text and language.`;
 
 function categoryLabel(category: "required" | "preferred", language: "es" | "en"): string {
   if (language === "es") {
@@ -85,8 +91,8 @@ export async function createAiAnalysis(input: CreateAnalysisInput): Promise<Anal
     text: {
       format: zodTextFormat(aiReportSchema, "job_fit_report")
     },
-    // Leave room for both reasoning and a complete structured report.
-    max_output_tokens: 6_000,
+    // Include room for the source excerpts as well as the assessment and reasoning.
+    max_output_tokens: 8_000,
     ...(/^gpt-5-mini(?:-|$)/.test(env.OPENAI_MODEL)
       ? { reasoning: { effort: "low" as const } }
       : {}),
@@ -102,7 +108,11 @@ export async function createAiAnalysis(input: CreateAnalysisInput): Promise<Anal
     throw new Error("Duplicate analysis requirements");
   }
   const requirements: AssessedRequirement[] = parsed.requirements.map(({ clarificationId, ...requirement }) => {
-    const answer = input.clarifications?.find((answer) => answer.requirementId === (clarificationId ?? requirement.id));
+    // A model-provided reference must not apply one answer to another requirement.
+    const mismatchedAnswer = clarificationId !== null && clarificationId !== requirement.id;
+    const answer = mismatchedAnswer ? undefined : input.clarifications?.find(
+      (answer) => answer.requirementId === requirement.id
+    );
     if (answer) {
       requirement.evidenceSource = "user";
       if (answer.response === "no") {
@@ -111,13 +121,21 @@ export async function createAiAnalysis(input: CreateAnalysisInput): Promise<Anal
           ? "Has indicado que todavía no cumples este requisito."
           : "You confirmed that you do not yet meet this requirement.";
       }
-    } else if (requirement.evidenceSource === "user") {
+    } else if (mismatchedAnswer || requirement.evidenceSource === "user") {
       requirement.status = "unknown";
       requirement.evidence = input.language === "es" ? "Falta información para valorar este requisito." : "More information is needed to assess this requirement.";
     }
     if (requirement.evidenceSource === "unknown" || requirement.status === "unknown") {
       requirement.status = "unknown";
       requirement.evidenceSource = "unknown";
+    }
+    if (!locateQuote(input.jobText, requirement.jobQuote) ||
+      requirement.cvQuotes.some((quote) => !locateQuote(input.cvText, quote)) ||
+      (requirement.evidenceSource === "cv" && requirement.cvQuotes.length === 0)
+    ) {
+      // An ungrounded assessment uses the existing, labelled local fallback.
+      // Never log the proposed quote: it may include private candidate data.
+      throw new Error("Analysis sources could not be located");
     }
     return { ...requirement, answerId: answer?.requirementId, categoryLabel: categoryLabel(requirement.category, input.language) };
   });

@@ -20,7 +20,6 @@ let fallbackLanguage: Language = defaultLanguage;
 type LanguageContextValue = {
   language: Language;
   setLanguage: (language: Language) => void;
-  toggleLanguage: () => void;
   t: LanguageCopy;
 };
 
@@ -86,18 +85,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new Event(LANGUAGE_CHANGE_EVENT));
   }, []);
 
-  const toggleLanguage = useCallback(() => {
-    setLanguage(language === "es" ? "en" : "es");
-  }, [language, setLanguage]);
-
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
       setLanguage,
-      toggleLanguage,
       t: translations[language],
     }),
-    [language, setLanguage, toggleLanguage],
+    [language, setLanguage],
   );
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;

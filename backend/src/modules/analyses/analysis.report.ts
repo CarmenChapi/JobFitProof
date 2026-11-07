@@ -1,9 +1,15 @@
 import type { AnalysisReport, AnalysisRequirement, CreateAnalysisInput } from "./analysis.schema.js";
 import { isPracticalCondition } from "./analysis.conditions.js";
+import { locateQuote } from "./analysis.sources.js";
 
 type AssessmentFields = "kind" | "cvAssessability" | "cvAssessmentReason" | "clarificationMaterial";
-export type AssessedRequirement = Omit<AnalysisRequirement, AssessmentFields> &
-  Partial<Pick<AnalysisRequirement, AssessmentFields>> & { question?: string | null; answerId?: string };
+export type AssessedRequirement = Omit<AnalysisRequirement, AssessmentFields | "sources"> &
+  Partial<Pick<AnalysisRequirement, AssessmentFields>> & {
+    question?: string | null;
+    answerId?: string;
+    jobQuote?: string;
+    cvQuotes?: string[];
+  };
 
 export function buildReport(
   input: CreateAnalysisInput,
@@ -14,7 +20,7 @@ export function buildReport(
   const es = input.language === "es";
   const acceptedAnswers = new Set<string>();
   const normalised = assessed.slice(0, 12).map((item) => {
-    const { question, answerId, ...assessment } = item;
+    const { question, answerId, jobQuote, cvQuotes, ...assessment } = item;
     // The candidate's kind hint cannot turn a skill into a practical condition.
     const kind = isPracticalCondition(item.label) ? "condition" : item.kind ?? "evidence";
     let answer = input.clarifications?.find((candidate) => candidate.requirementId === answerId);
@@ -25,7 +31,8 @@ export function buildReport(
       cvAssessmentReason: kind === "condition"
         ? es ? "Esta condición necesita tu confirmación; el CV no demuestra tu disponibilidad." : "This condition needs your confirmation; the CV does not establish your availability."
         : item.cvAssessmentReason || (es ? "Falta información concreta para valorar este requisito." : "Specific information is needed to assess this requirement."),
-      clarificationMaterial: item.clarificationMaterial ?? true
+      clarificationMaterial: item.clarificationMaterial ?? true,
+      sources: { job: locateQuote(input.jobText, jobQuote), cv: [], clarification: null }
     };
 
     if (answer && kind === "evidence" && answer.response !== "no" && !answer.details.trim()) {
@@ -54,7 +61,19 @@ export function buildReport(
       requirement.clarificationMaterial = true;
     }
     if (requirement.status === "unknown") requirement.evidenceSource = "unknown";
-    if (answer) acceptedAnswers.add(answer.requirementId);
+    if (kind === "evidence") {
+      const excerpts = (cvQuotes ?? []).slice(0, 2)
+        .map((quote) => locateQuote(input.cvText, quote))
+        .filter((quote) => quote !== null);
+      requirement.sources.cv = [...new Map(excerpts.map((quote) => [`${quote.start}-${quote.end}`, quote])).values()];
+    }
+    if (answer) {
+      acceptedAnswers.add(answer.requirementId);
+      // Answers come from the validated request, never from model-written text.
+      requirement.sources.clarification = {
+        requirementId: answer.requirementId, response: answer.response, details: answer.details
+      };
+    }
     return { requirement, question };
   });
   const requirements = normalised.map(({ requirement }) => requirement);

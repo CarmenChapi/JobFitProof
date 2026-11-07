@@ -98,6 +98,19 @@ export const translations = {
       disclosure: "Tus respuestas se usarán para actualizar el informe y aparecerán como información aportada por ti. No se añadirán automáticamente al CV.",
     },
     provenance: { cv: "Evidencia en el CV", user: "Información aportada por ti", unknown: "Sin información suficiente" },
+    sources: {
+      show: "Ver fuentes",
+      description: "Fragmentos originales vinculados a esta valoración. Las citas conservan el idioma del texto que has aportado.",
+      job: "Lo que pide la oferta",
+      cv: "Fragmentos de tu CV",
+      answer: "Tu aclaración",
+      response: "Respuesta",
+      noJobQuote: "No se ha localizado una cita de la oferta para este requisito. Revisa la interpretación.",
+      noCvQuote: "No hay una cita del CV asociada a esta valoración. Esto no confirma que te falte esa habilidad.",
+      conditionNeedsAnswer: "Esta condición requiere tu confirmación; el CV no demuestra tu disponibilidad.",
+      selfReported: "Información aportada por ti en esta revisión; no se ha añadido al CV.",
+      pending: "Qué queda por aclarar",
+    },
     conditionStatus: { si: "Te encaja", parcial: "Depende", no: "No te encaja", unknown: "Sin confirmar" },
     report: {
       title: "Informe de adecuación",
@@ -113,7 +126,6 @@ export const translations = {
       fallback: "Revisión básica: solo reconoce algunos requisitos y no comprueba niveles ni contexto. Las respuestas positivas sobre habilidades se mantienen como evidencia parcial.",
       noRequirements: "No se han podido identificar requisitos de habilidades o experiencia para calcular una puntuación.",
       unassessed: "No se han podido evaluar estas respuestas. Revísalas manualmente; no se han usado para cambiar la puntuación:",
-      roleFallback: "Rol objetivo",
       requirementsMetric: "Habilidades y experiencia",
       strengthsMetric: "Fortalezas",
       gapsMetric: "Carencias",
@@ -124,9 +136,6 @@ export const translations = {
       statusTitle: "Estado",
       nextTitle: "Siguiente mejora sugerida",
       filenameFallback: "informe",
-      highSummary: "Buen encaje inicial. El CV ya muestra varias pruebas fuertes para esta oferta.",
-      midSummary: "Adecuación prometedora, con aspectos que se pueden mejorar antes de presentar la candidatura.",
-      lowSummary: "Conviene reforzar las evidencias clave antes de presentar la candidatura a este puesto.",
       improve: (gap: string) =>
         `Busca formación o práctica para reforzar ${gap.toLowerCase()}. Añade al CV solo conocimientos o experiencia que puedas respaldar.`,
       ready: "Revisa la evidencia de cada requisito y adapta el CV con información que puedas respaldar.",
@@ -136,29 +145,6 @@ export const translations = {
       parcial: "Cumple parcialmente",
       no: "No cumple",
       unknown: "Por aclarar",
-    },
-    categories: {
-      required: "imprescindible",
-      preferred: "valorable",
-    },
-    requirements: {
-      react: "React en producto",
-      typescript: "TypeScript en producción",
-      next: "Next.js / SSR",
-      api: "Integración con APIs",
-      testing: "Pruebas de frontend",
-      accessibility: "Accesibilidad",
-      performance: "Rendimiento web",
-      product: "Trabajo con producto",
-      english: "Inglés profesional",
-      leadership: "Liderazgo técnico",
-    },
-    evidence: {
-      si: (label: string) => `Hay evidencia directa de ${label.toLowerCase()} en el CV.`,
-      parcial: (label: string) =>
-        `Aparecen señales relacionadas, pero conviene explicitar ${label.toLowerCase()} con impacto medible.`,
-      no: (label: string) =>
-        `No aparece una prueba clara de ${label.toLowerCase()} para este requisito.`,
     },
     samples: {
       cv: `Frontend Developer con 4 años creando productos SaaS con React, TypeScript y Next.js.
@@ -257,6 +243,19 @@ También se valorará la experiencia orientando a otros desarrolladores o lidera
       disclosure: "Your answers will update the report and be labelled as information supplied by you. They will not be added to your CV automatically.",
     },
     provenance: { cv: "Evidence in your CV", user: "Information supplied by you", unknown: "Not enough information" },
+    sources: {
+      show: "View sources",
+      description: "Original excerpts linked to this assessment. Quotes retain the language of the text you supplied.",
+      job: "What the job advert asks for",
+      cv: "Excerpts from your CV",
+      answer: "Your clarification",
+      response: "Response",
+      noJobQuote: "No job advert quote was located for this requirement. Review the interpretation.",
+      noCvQuote: "No CV quote is linked to this assessment. This does not confirm a missing skill.",
+      conditionNeedsAnswer: "This condition requires your confirmation; the CV does not establish your availability.",
+      selfReported: "Information you supplied for this review; it has not been added to your CV.",
+      pending: "What still needs clarification",
+    },
     conditionStatus: { si: "Works for you", parcial: "Depends", no: "Does not work for you", unknown: "Unconfirmed" },
     report: {
       title: "Fit report",
@@ -272,7 +271,6 @@ También se valorará la experiencia orientando a otros desarrolladores o lidera
       fallback: "Basic review: recognises only some requirements and cannot check levels or context. Positive skill answers remain partial evidence.",
       noRequirements: "No skill or experience requirements were identified from which to calculate a score.",
       unassessed: "These answers could not be assessed. Review them manually; they have not been used to change the score:",
-      roleFallback: "Target role",
       requirementsMetric: "Skills and experience",
       strengthsMetric: "Strengths",
       gapsMetric: "Gaps",
@@ -283,9 +281,6 @@ También se valorará la experiencia orientando a otros desarrolladores o lidera
       statusTitle: "Status",
       nextTitle: "Suggested next improvement",
       filenameFallback: "report",
-      highSummary: "Strong initial fit. The CV already provides several clear examples of relevant experience for this role.",
-      midSummary: "Promising fit, with gaps that can be improved before applying.",
-      lowSummary: "It is worth strengthening key evidence before applying to this role.",
       improve: (gap: string) =>
         `Choose a learning or practice step to strengthen ${gap.toLowerCase()}. Only add skills or experience you can support to your CV.`,
       ready: "Review the evidence for each requirement and tailor your CV using information you can support.",
@@ -295,29 +290,6 @@ También se valorará la experiencia orientando a otros desarrolladores o lidera
       parcial: "Partial",
       no: "Gap",
       unknown: "Needs clarification",
-    },
-    categories: {
-      required: "required",
-      preferred: "preferred",
-    },
-    requirements: {
-      react: "React in product work",
-      typescript: "Production TypeScript",
-      next: "Next.js / SSR",
-      api: "API integration",
-      testing: "Frontend testing",
-      accessibility: "Accessibility",
-      performance: "Web performance",
-      product: "Product collaboration",
-      english: "Professional English",
-      leadership: "Technical leadership",
-    },
-    evidence: {
-      si: (label: string) => `There is direct evidence of ${label.toLowerCase()} in the CV.`,
-      parcial: (label: string) =>
-        `Related signals appear, but ${label.toLowerCase()} should be stated with measurable impact.`,
-      no: (label: string) =>
-        `There is no clear evidence of ${label.toLowerCase()} for this requirement.`,
     },
     samples: {
       cv: `Frontend Developer with 4 years building SaaS products with React, TypeScript, and Next.js.

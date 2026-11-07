@@ -48,6 +48,7 @@ src/
     ├── analysis.heuristic.service.ts Local keyword-based fallback
     ├── analysis.conditions.ts      Practical-condition recognition
     ├── analysis.report.ts          Assessment policy, score and questions
+    ├── analysis.sources.ts         Source excerpt selection and location checks
     └── analysis.quota.ts           Redis connection and atomic quota reservation
 tests/                             API, policy, proxy, contract and Redis tests
 ```
@@ -129,7 +130,9 @@ The frontend's `BACKEND_TIMEOUT_MS` must exceed the AI deadline plus Redis and r
 
 The service sends the CV, job advert, target level, requested locale and optional answers to the OpenAI Responses API. A Zod-derived Structured Outputs schema constrains the response to at most 12 requirements, and the adapter checks the parsed structure and uniqueness of requirement IDs.
 
-The request currently uses a 6,000-token output allowance, `store: false`, an explicit abort deadline and no automatic SDK retries. `gpt-5-mini` and its snapshot names use low reasoning effort. Each admitted analysis makes at most one provider request.
+An answer can contribute only to the requirement with the same ID. If the model references another requirement's answer, that assessment becomes unknown and the unused answer remains visible in `unassessedClarifications`. This prevents an answer about one skill from silently earning credit for another.
+
+The request currently uses an 8,000-token output allowance to accommodate the assessment and source excerpts, `store: false`, an explicit abort deadline and no automatic SDK retries. `gpt-5-mini` and its snapshot names use low reasoning effort. Each admitted analysis makes at most one provider request.
 
 The prompt treats submitted text as untrusted data, requests only criteria explicitly present in the advert and distinguishes missing information from explicit non-fulfilment. It instructs the model to avoid inventing experience or inferring protected characteristics. Schema validation constrains structure; it does not establish the factual accuracy of an assessment.
 
@@ -138,6 +141,8 @@ The prompt treats submitted text as untrusted data, requests only criteria expli
 If the provider cannot complete the assessment, returns an incomplete/invalid response, or has no configured key, the service returns `source: "heuristic"`. The frontend labels this as a basic review.
 
 The fallback recognises predefined terms, mainly React, TypeScript, Next.js, APIs, testing, accessibility, performance, product collaboration, English, AI interest/experience and leadership. It also recognises some short practical-condition clauses. It cannot comprehensively interpret unrelated occupations, proficiency levels or complex context. Positive skill answers remain partial evidence in this mode.
+
+When falling back after an AI clarification round, requirement IDs may differ. The fallback reuses an answer only if its label identifies one recognised skill and there is one matching answer. Combined or ambiguous labels and practical-condition answers are not reused as skill evidence; unmatched answers are disclosed for manual review. The ordinary word “next” is not treated as Next.js.
 
 `NODE_ENV=test` uses local analysis. AI adapter tests mock the provider rather than sending real requests.
 
@@ -166,6 +171,22 @@ statusFactor: si = 1; parcial = 0.5; no = 0; unknown = 0
 Practical conditions are excluded from scoring, skills gaps and suggested CV additions. The API returns `score: 0` when there are no skills requirements; the frontend presents no percentage and exports `null` in that case.
 
 An omitted fact is not a confirmed gap. `gaps` contains explicit non-fulfilment of skills requirements. `cvImprovements` contains supported or partially supported self-reported skill information that could be added to the CV. `unassessedClarifications` lists submitted answers that could not be used, rather than silently treating them as evidence.
+
+### Source traceability
+
+Each requirement includes a `sources` object:
+
+| Field | Content |
+| --- | --- |
+| `job` | One located job advert excerpt, or `null` when no excerpt can be selected. |
+| `cv` | Up to two distinct CV excerpts; an empty array means no CV passage is linked. Practical conditions use an empty array. |
+| `clarification` | The accepted answer's original `requirementId`, `response` and `details`, or `null`. |
+
+An excerpt contains `text`, `start` and `end`. The indices are zero-based UTF-16 offsets into the trimmed request field, with an exclusive end: `input.slice(start, end) === text`. Excerpts contain at most 320 characters. Only whitespace differences are tolerated when locating model-proposed quotations; the returned text is always the original substring. Paraphrases, translations, changed numbers and inserted ellipses are rejected. Repeated passages resolve to their first matching occurrence.
+
+The AI schema requests a job excerpt for every requirement and CV excerpts for CV-based evidence. If an AI source cannot be located, the existing local fallback is used; unsupported quotations are not exposed. The fallback selects bounded passages using its existing keyword vocabulary. Accepted candidate answers are copied from validated input, never generated by the model. Next.js and the browser independently compare every returned excerpt and answer against that request's input.
+
+These checks establish where a quotation came from, not whether a candidate's statement is true or a model's interpretation is correct. This distinction matters because [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) constrain the response structure but can still contain mistakes. Quotes retain their source language even when the explanations use another locale.
 
 ## API reference
 
@@ -282,7 +303,9 @@ The following illustrates the response shape; exact assessment content and weigh
   "roleTitle": "Project Support Officer",
   "score": 100,
   "summary": "1 of 1 skills and experience requirements have sufficient support. 0 still need clarification.",
-  "strengths": ["Excel reporting"],
+  "strengths": [
+    "Excel reporting"
+  ],
   "gaps": [],
   "requirements": [
     {
@@ -297,7 +320,22 @@ The following illustrates the response shape; exact assessment content and weigh
       "weight": 10,
       "cvAssessability": "yes",
       "cvAssessmentReason": "The CV provides a specific reporting example.",
-      "clarificationMaterial": false
+      "clarificationMaterial": false,
+      "sources": {
+        "job": {
+          "text": "experience preparing reports in Excel",
+          "start": 45,
+          "end": 82
+        },
+        "cv": [
+          {
+            "text": "I prepare monthly Excel reports using pivot tables",
+            "start": 65,
+            "end": 115
+          }
+        ],
+        "clarification": null
+      }
     },
     {
       "id": "travel",
@@ -311,7 +349,16 @@ The following illustrates the response shape; exact assessment content and weigh
       "weight": 1,
       "cvAssessability": "no",
       "cvAssessmentReason": "This condition needs your confirmation; the CV does not establish your availability.",
-      "clarificationMaterial": true
+      "clarificationMaterial": true,
+      "sources": {
+        "job": {
+          "text": "willingness to travel to other offices when needed",
+          "start": 87,
+          "end": 137
+        },
+        "cv": [],
+        "clarification": null
+      }
     }
   ],
   "source": "ai",
@@ -329,7 +376,7 @@ The following illustrates the response shape; exact assessment content and weigh
 }
 ```
 
-The API uses stable status codes (`si`, `parcial`, `no`, `unknown`) and provenance values (`cv`, `user`, `unknown`) in both languages. User-facing text follows the requested locale. All report arrays, including `questions`, are present even when empty.
+The API uses stable status codes (`si`, `parcial`, `no`, `unknown`) and provenance values (`cv`, `user`, `unknown`) in both languages. Explanations follow the requested locale; quoted excerpts retain their original language. All report arrays, including `questions`, are present even when empty.
 
 The response combines skills and conditions in `requirements`. The frontend's downloaded JSON separates these into `requirements` and `conditions` and localises status labels. The API response and downloaded format are therefore intentionally different.
 
@@ -393,8 +440,11 @@ The normal suite uses local analysis, mocked provider calls and test quota store
 
 - Authentication, input validation and the public analysis contract.
 - Frontend/backend agreement on accepted input and clarification limits.
-- Same-origin proxy behaviour, bounded uploads, IP normalisation and safe error forwarding.
+- Same-origin proxy behaviour, bounded uploads/responses, IP normalisation and safe error forwarding.
 - Missing versus negative evidence, candidate answers, conditions and score calculation.
+- Complete clarification rounds through Next.js and Fastify in both languages.
+- Runtime report validation, unambiguous answer matching and localised JSON export.
+- Source text/offset checks, whitespace handling, fabricated citation rejection and original answer preservation.
 - Incomplete AI output, timeouts and safe fallback reports.
 - Public error sanitisation and request references.
 
