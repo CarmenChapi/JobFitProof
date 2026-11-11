@@ -258,7 +258,7 @@ export function createHeuristicAnalysis(input: CreateAnalysisInput): AnalysisRep
     // Never truncate a practical condition: a qualifier could change its meaning.
     .filter((part) => part.length > 0 && part.length <= 160 && isPracticalCondition(part)))];
   for (const [index, label] of conditions.entries()) {
-    if (requirements.length >= 12) break;
+    // Retain the detected overflow so the report can disclose excluded criteria.
     const id = `condition-${index + 1}`;
     const answer = input.clarifications?.find((candidate) => candidate.requirementId === id && candidate.requirement === label);
     requirements.push({

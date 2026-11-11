@@ -17,11 +17,15 @@ export const createAnalysisSchema = z
     jobText: textField,
     seniority: z.enum(["junior", "mid", "senior"]),
     language: z.enum(["es", "en"]).default("es"),
+    reviewToken: z.string().max(131_072).regex(/^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/).optional(),
     clarifications: z.array(clarificationSchema).max(12)
       .refine((answers) => new Set(answers.map((answer) => answer.requirementId)).size === answers.length)
       .optional()
   })
-  .strict();
+  .strict()
+  .refine((input) => (input.clarifications !== undefined) === (input.reviewToken !== undefined), {
+    path: ["reviewToken"], message: "Clarifications require the original analysis context"
+  });
 
 export type CreateAnalysisInput = z.infer<typeof createAnalysisSchema>;
 export type AnalysisLanguage = CreateAnalysisInput["language"];
@@ -69,6 +73,12 @@ export type ClarificationQuestion = {
   reason: string;
 };
 
+export type AnalysisCoverage = {
+  limit: 12;
+  hasMoreRequirements: boolean | null;
+  additionalRequirements: { label: string; source: SourceQuote }[];
+};
+
 export type AnalysisReport = {
   generatedAt: string;
   language: AnalysisLanguage;
@@ -83,4 +93,6 @@ export type AnalysisReport = {
   questions: ClarificationQuestion[];
   cvImprovements: string[];
   unassessedClarifications: string[];
+  coverage: AnalysisCoverage;
+  reviewToken: string | null;
 };

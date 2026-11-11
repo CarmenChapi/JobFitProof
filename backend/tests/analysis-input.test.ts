@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAnalysisInput } from "../../frontend/lib/analysis-input";
 import { createAnalysisSchema } from "../src/modules/analyses/analysis.schema.js";
-import { sampleInput } from "./helpers.js";
+import { sampleInput, sampleReviewToken } from "./helpers.js";
 
 const answer = { requirementId: "english", requirement: "Professional English", response: "yes", details: "B2; weekly client meetings." };
 const cases: { name: string; input: unknown; accepted: boolean }[] = [
@@ -35,7 +35,12 @@ const cases: { name: string; input: unknown; accepted: boolean }[] = [
       { name: `${key} too long`, value: [{ ...answer, [key]: "x".repeat(Number(limit) + 1) }], accepted: false },
       { name: `${key} missing`, value: [{ ...answer, [key]: undefined }], accepted: false }
     ])
-  ].map(({ name, value, accepted }) => ({ name: `clarifications: ${name}`, input: { ...sampleInput, clarifications: value }, accepted })),
+  ].map(({ name, value, accepted }) => ({ name: `clarifications: ${name}`, input: { ...sampleInput, reviewToken: sampleReviewToken, clarifications: value }, accepted })),
+  { name: "answers without context", input: { ...sampleInput, clarifications: [] }, accepted: false },
+  { name: "context without answers", input: { ...sampleInput, reviewToken: sampleReviewToken }, accepted: false },
+  ...["", "forged", "a".repeat(131_073), null].map((reviewToken) => ({
+    name: `invalid context ${String(reviewToken).slice(0, 10)}`, input: { ...sampleInput, reviewToken, clarifications: [] }, accepted: false
+  })),
   { name: "valid input", input: sampleInput, accepted: true },
   { name: "null", input: null, accepted: false },
   { name: "an array", input: [sampleInput], accepted: false },

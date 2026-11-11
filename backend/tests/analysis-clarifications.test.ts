@@ -70,7 +70,7 @@ describe("clarifying missing evidence", () => {
     const english = draft.questions.find((question: { requirementId: string }) => question.requirementId === "english");
     const interest = draft.questions.find((question: { requirementId: string }) => question.requirementId === "ai_interest");
     const final = await app.inject({ method: "POST", url: "/api/v1/analyses", headers: serviceHeaders, payload: {
-      ...input, language, clarifications: [
+      ...input, language, reviewToken: draft.reviewToken, clarifications: [
         { requirementId: english.requirementId, requirement: english.requirement, response: "yes", details: "B2, weekly client meetings." },
         { requirementId: interest.requirementId, requirement: interest.requirement, response: "no", details: "" }
       ]

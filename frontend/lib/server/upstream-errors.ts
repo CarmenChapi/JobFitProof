@@ -5,6 +5,7 @@ const quotaCodes = new Set([
 const inputErrors: Record<number, { error: string; message: string }> = {
   400: { error: "ValidationError", message: "Invalid analysis input" },
   408: { error: "RequestTimeout", message: "The request took too long" },
+  409: { error: "AnalysisContextInvalid", message: "Start a new analysis before submitting answers" },
   413: { error: "PayloadTooLarge", message: "The request body is too large" },
   415: { error: "UnsupportedMediaType", message: "Send the request as UTF-8 application/json" }
 };

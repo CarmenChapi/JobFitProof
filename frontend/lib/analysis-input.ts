@@ -12,9 +12,10 @@ export type AnalysisRequestInput = {
   seniority: "junior" | "mid" | "senior";
   language: "es" | "en";
   clarifications?: ClarificationAnswer[];
+  reviewToken?: string;
 };
 
-const inputFields = new Set(["cvText", "jobText", "seniority", "language", "clarifications"]);
+const inputFields = new Set(["cvText", "jobText", "seniority", "language", "clarifications", "reviewToken"]);
 const answerFields = new Set(["requirementId", "requirement", "kind", "response", "details"]);
 
 export function parseAnalysisInput(value: unknown): AnalysisRequestInput | null {
@@ -45,6 +46,12 @@ export function parseAnalysisInput(value: unknown): AnalysisRequestInput | null 
   }
 
   const result: AnalysisRequestInput = { cvText, jobText, seniority, language };
+  if ((input.clarifications !== undefined) !== (input.reviewToken !== undefined)) return null;
+  if (input.reviewToken !== undefined) {
+    if (typeof input.reviewToken !== "string" || input.reviewToken.length > 131_072 ||
+      !/^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/.test(input.reviewToken)) return null;
+    result.reviewToken = input.reviewToken;
+  }
   if (input.clarifications !== undefined) {
     if (!Array.isArray(input.clarifications) || input.clarifications.length > 12) return null;
     const answers: ClarificationAnswer[] = [];

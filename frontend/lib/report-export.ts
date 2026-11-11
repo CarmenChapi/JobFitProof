@@ -12,6 +12,7 @@ export function buildReportExport(report: Report) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
   const exportRequirement = (requirement: Report["requirements"][number]) => ({
+    id: requirement.id,
     label: requirement.label,
     kind: requirement.kind,
     category: requirement.categoryLabel,
@@ -23,6 +24,7 @@ export function buildReportExport(report: Report) {
     cvAssessmentReason: requirement.cvAssessmentReason,
     clarificationMaterial: requirement.clarificationMaterial,
     sources: requirement.sources,
+    weight: requirement.weight,
   });
 
   return {
@@ -40,6 +42,7 @@ export function buildReportExport(report: Report) {
       gaps: report.gaps,
       cvImprovements: report.cvImprovements,
       unassessedClarifications: report.unassessedClarifications,
+      coverage: report.coverage,
       requirements: skills.map(exportRequirement),
       conditions: conditions.map(exportRequirement),
     },

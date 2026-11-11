@@ -11,9 +11,11 @@ The backend uses a feature-based structure. The analysis module contains its HTT
 | Layer | Responsibility |
 | --- | --- |
 | Routes | Register endpoints, authentication hooks and body limits. |
-| Controller | Validate input, reserve quota, call the analysis service and release the concurrency slot. |
-| Analysis service | Select AI analysis or the heuristic fallback. |
-| AI adapter | Call OpenAI, validate structured output and associate candidate answers with requirements. |
+| Controller | Validate input and review context, reserve quota, call the analysis service and release the concurrency slot. |
+| Analysis service | Route initial extraction or a review of the original requirements. |
+| AI adapter | Extract and assess requirements, checking structured output and source excerpts. |
+| Review service | Reassess answered requirements without changing the original criteria or weights. |
+| Review context | Encrypt and authenticate the original report for a bounded clarification session. |
 | Heuristic service | Recognise a limited predefined vocabulary and some practical conditions locally. |
 | Report policy | Normalise assessment decisions, calculate the skills score and generate clarification questions. |
 | Quota store | Enforce shared request and concurrency limits through Redis. |
@@ -44,6 +46,8 @@ src/
     ├── analysis.controller.ts      Request orchestration and quota lifecycle
     ├── analysis.schema.ts          Input schema and public report types
     ├── analysis.service.ts         AI/fallback selection
+    ├── analysis.context.ts         Authenticated, expiring original report
+    ├── analysis.review.ts          Clarification review over fixed requirements
     ├── analysis.ai.service.ts      OpenAI Structured Outputs integration
     ├── analysis.heuristic.service.ts Local keyword-based fallback
     ├── analysis.conditions.ts      Practical-condition recognition
@@ -128,11 +132,11 @@ The frontend's `BACKEND_TIMEOUT_MS` must exceed the AI deadline plus Redis and r
 
 ### AI mode
 
-The service sends the CV, job advert, target level, requested locale and optional answers to the OpenAI Responses API. A Zod-derived Structured Outputs schema constrains the response to at most 12 requirements, and the adapter checks the parsed structure and uniqueness of requirement IDs.
+The initial analysis sends the CV, job advert, target level and requested locale to the OpenAI Responses API. A Zod-derived Structured Outputs schema constrains the response to at most 12 requirements, and the adapter checks the parsed structure and uniqueness of requirement IDs. The prompt asks the model to inspect the entire advert, prioritise essential criteria and return up to three quoted examples of additional, unassessed requirements when the advert exceeds the limit.
 
-An answer can contribute only to the requirement with the same ID. If the model references another requirement's answer, that assessment becomes unknown and the unused answer remains visible in `unassessedClarifications`. This prevents an answer about one skill from silently earning credit for another.
+Clarification uses a separate schema containing only requirement IDs, statuses and explanations. The model receives only the answered skills, their original labels and source excerpts, previous statuses and new answers. Returned IDs must match that set exactly. The model cannot return revised weights, categories or extra criteria. Negative answers and practical conditions are applied deterministically without a provider request.
 
-The request currently uses an 8,000-token output allowance to accommodate the assessment and source excerpts, `store: false`, an explicit abort deadline and no automatic SDK retries. `gpt-5-mini` and its snapshot names use low reasoning effort. Each admitted analysis makes at most one provider request.
+Initial extraction uses an 8,000-token output allowance; clarification review uses 4,000. Both use `store: false`, an explicit abort deadline and no automatic SDK retries. `gpt-5-mini` and its snapshot names use low reasoning effort. Each admitted analysis makes at most one provider request.
 
 The prompt treats submitted text as untrusted data, requests only criteria explicitly present in the advert and distinguishes missing information from explicit non-fulfilment. It instructs the model to avoid inventing experience or inferring protected characteristics. Schema validation constrains structure; it does not establish the factual accuracy of an assessment.
 
@@ -142,7 +146,7 @@ If the provider cannot complete the assessment, returns an incomplete/invalid re
 
 The fallback recognises predefined terms, mainly React, TypeScript, Next.js, APIs, testing, accessibility, performance, product collaboration, English, AI interest/experience and leadership. It also recognises some short practical-condition clauses. It cannot comprehensively interpret unrelated occupations, proficiency levels or complex context. Positive skill answers remain partial evidence in this mode.
 
-When falling back after an AI clarification round, requirement IDs may differ. The fallback reuses an answer only if its label identifies one recognised skill and there is one matching answer. Combined or ambiguous labels and practical-condition answers are not reused as skill evidence; unmatched answers are disclosed for manual review. The ordinary word “next” is not treated as Next.js.
+If clarification review fails, the service retains the entire original requirement set, including criteria outside the keyword vocabulary. Unanswered assessments remain unchanged. Positive or partial skill answers receive a cautious partial assessment, retaining an already sufficient original assessment for a positive answer. This review never reruns keyword extraction or changes weights. The initial keyword fallback does not treat the ordinary word “next” as Next.js.
 
 `NODE_ENV=test` uses local analysis. AI adapter tests mock the provider rather than sending real requests.
 
@@ -170,7 +174,23 @@ statusFactor: si = 1; parcial = 0.5; no = 0; unknown = 0
 
 Practical conditions are excluded from scoring, skills gaps and suggested CV additions. The API returns `score: 0` when there are no skills requirements; the frontend presents no percentage and exports `null` in that case.
 
-An omitted fact is not a confirmed gap. `gaps` contains explicit non-fulfilment of skills requirements. `cvImprovements` contains supported or partially supported self-reported skill information that could be added to the CV. `unassessedClarifications` lists submitted answers that could not be used, rather than silently treating them as evidence.
+An omitted fact is not a confirmed gap. `gaps` contains explicit non-fulfilment of skills requirements. `cvImprovements` contains supported or partially supported self-reported skill information that could be added to the CV. `unassessedClarifications` remains part of the report contract; the authenticated review accepts only answers matching the original set, so successful reviews return an empty list.
+
+### Stable review context and coverage
+
+When an initial report has questions, the controller returns a `reviewToken`. It contains the original report encrypted with AES-256-GCM, a random 96-bit nonce and a 128-bit authentication tag. A domain-separated key is derived with HKDF-SHA256 from `INTERNAL_API_SECRET`. Authenticated associated data binds it to the client identity and a SHA-256 fingerprint of the normalised CV, advert, target level and language. No additional configuration or report storage is required.
+
+The context expires after two hours. It is authenticated and the answer IDs, labels and kinds are checked before quota reservation. Changed inputs, an altered/expired token or a mismatched answer produce a controlled `409`. Rotating the shared secret or changing the client identity also invalidates a pending review. The token contains encrypted report excerpts, not the raw input documents; keep it out of logs, persistent browser storage and exports. Accepted retries can reuse the original token within its lifetime and remain subject to quotas. A completed review returns `reviewToken: null` and no further questions.
+
+The decrypted report fixes requirement IDs, labels, order, kinds, categories, weights and original source excerpts. Only answered assessments change; scoring is recalculated with the same denominator. Coverage metadata is preserved as well:
+
+| `coverage` field | Meaning |
+| --- | --- |
+| `limit` | Always `12`, including skills and practical conditions. |
+| `hasMoreRequirements` | `true` when excluded requirements were detected; `false` when AI identified no overflow; `null` when the local fallback cannot establish full coverage. |
+| `additionalRequirements` | Up to three representative excluded criteria, each with a `label` and verified job excerpt in `source`. |
+
+Overflow requires 12 assessed requirements. Extra AI examples must have distinct labels and located job quotes. The heuristic counts all recognised criteria before selecting 12. This metadata is not an exact total or a guarantee that every criterion was found; the score applies only to the selected requirements.
 
 ### Source traceability
 
@@ -217,6 +237,7 @@ X-JobFit-Client: <64-character-lower-case-hexadecimal-identity>
 | `seniority` | Yes | `junior`, `mid` or `senior`. |
 | `language` | No | `es` or `en`; defaults to `es`. |
 | `clarifications` | No | Up to 12 answers with unique requirement IDs. |
+| `reviewToken` | With `clarifications` only | Original opaque review context; at most 131,072 characters. Required even for an empty clarification array. |
 
 Unknown fields are rejected. The route limits request bodies to 512 KiB. Authentication runs before body parsing, and schema validation runs before quota reservation.
 
@@ -256,10 +277,11 @@ The fixed client identity above is for local diagnostics. Browser requests recei
 
 ### Clarification submission
 
-Send the original input fields again with a `clarifications` array. Reuse the IDs and labels returned in the first report. The following is the additional field to include, not a standalone request:
+Send the unchanged original input fields again with `clarifications` and the exact `reviewToken` returned in the first report. Reuse its requirement IDs, labels and kinds. The following shows the additional fields, not a standalone request. The token shown is illustrative and cannot authenticate a real review:
 
 ```json
 {
+  "reviewToken": "v1.aaaaaaaaaaaaaaaa.example.aaaaaaaaaaaaaaaaaaaaaa",
   "clarifications": [
     {
       "requirementId": "excel-reporting",
@@ -293,7 +315,7 @@ Providing `clarifications`, including an empty array, finishes the clarification
 
 ### Report response
 
-The following illustrates the response shape; exact assessment content and weights depend on the supplied material and analysis mode:
+The following illustrates the response shape; exact assessment content and initial weights depend on the supplied material and analysis mode. The example token is a placeholder; clients must use the actual returned value:
 
 ```json
 {
@@ -372,13 +394,19 @@ The following illustrates the response shape; exact assessment content and weigh
     }
   ],
   "cvImprovements": [],
-  "unassessedClarifications": []
+  "unassessedClarifications": [],
+  "coverage": {
+    "limit": 12,
+    "hasMoreRequirements": false,
+    "additionalRequirements": []
+  },
+  "reviewToken": "v1.aaaaaaaaaaaaaaaa.example.aaaaaaaaaaaaaaaaaaaaaa"
 }
 ```
 
 The API uses stable status codes (`si`, `parcial`, `no`, `unknown`) and provenance values (`cv`, `user`, `unknown`) in both languages. Explanations follow the requested locale; quoted excerpts retain their original language. All report arrays, including `questions`, are present even when empty.
 
-The response combines skills and conditions in `requirements`. The frontend's downloaded JSON separates these into `requirements` and `conditions` and localises status labels. The API response and downloaded format are therefore intentionally different.
+The response combines skills and conditions in `requirements`. The frontend's downloaded JSON separates these into `requirements` and `conditions` and localises status labels. It retains IDs, weights and coverage, and excludes `reviewToken`. The API response and downloaded format are therefore intentionally different.
 
 ### Error responses
 
@@ -386,6 +414,7 @@ The response combines skills and conditions in `requirements`. The frontend's do
 | --- | --- |
 | `400` | Invalid input, malformed body or missing/invalid client identity. |
 | `401` | Missing or incorrect service credentials. |
+| `409` | Expired, altered or mismatched original analysis context; start a new analysis. |
 | `413` | Request body exceeds the configured limit. |
 | `415` | Unsupported request content type. |
 | `429` | Application rate, daily or concurrency limit reached. |
@@ -446,6 +475,7 @@ The normal suite uses local analysis, mocked provider calls and test quota store
 - Runtime report validation, unambiguous answer matching and localised JSON export.
 - Source text/offset checks, whitespace handling, fabricated citation rejection and original answer preservation.
 - Incomplete AI output, timeouts and safe fallback reports.
+- Frozen criteria and weighted scoring, encrypted review context binding/expiry/tampering, and quoted overflow disclosure.
 - Public error sanitisation and request references.
 
 ### Redis integration tests
@@ -473,7 +503,8 @@ Run `npm audit` in this directory to review all dependencies, or `npm audit --om
 | Direct API request returns `401` | The shell credential must match the running backend's `INTERNAL_API_SECRET`. |
 | Analysis consistently uses the heuristic fallback | Check the key, model, provider availability and deadline. AI failure logs include a controlled reason category. |
 | Frontend reports unavailable after receiving an older report | Restart the backend; rebuild first if running compiled JavaScript. The frontend expects the current question and report fields. |
-| A clarification submission returns `400` | Reuse returned IDs, respect the 12-answer limit and provide details where required. |
+| A clarification submission returns `400` | Include the returned `reviewToken`, respect the 12-answer limit and provide details where required. |
+| A clarification submission returns `409` | Start a new analysis; its original context has expired or no longer matches the input, client identity or answers. |
 | Analysis ends at the proxy before the backend completes | Keep `BACKEND_TIMEOUT_MS` above `OPENAI_TIMEOUT_MS` plus processing overhead. |
 | A valid request returns `429` | Respect the retry period; admitted failures and clarification submissions also count towards limits. |
 

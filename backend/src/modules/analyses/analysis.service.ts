@@ -4,8 +4,13 @@ import { env } from "../../config/env.js";
 import { createAiAnalysis } from "./analysis.ai.service.js";
 import { createHeuristicAnalysis } from "./analysis.heuristic.service.js";
 import type { AnalysisReport, CreateAnalysisInput } from "./analysis.schema.js";
+import { reviewAnalysis } from "./analysis.review.js";
 
-export async function createAnalysis(input: CreateAnalysisInput): Promise<AnalysisReport> {
+export async function createAnalysis(input: CreateAnalysisInput, baseline?: AnalysisReport): Promise<AnalysisReport> {
+  if (input.clarifications !== undefined) {
+    if (!baseline) throw new Error("Clarification review requires the original analysis");
+    return reviewAnalysis(input, baseline);
+  }
   if (env.NODE_ENV === "test") {
     return createHeuristicAnalysis(input);
   }

@@ -17,6 +17,7 @@ import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { ClarificationForm, type AnswerDrafts } from "@/components/clarification-form";
 import { AnalysisReportView } from "@/components/analysis-report-view";
+import { AnalysisCoverage } from "@/components/analysis-coverage";
 import { ReportPlaceholder } from "@/components/report-placeholder";
 import { parseAnalysisInput, type ClarificationAnswer } from "@/lib/analysis-input";
 import { parseAnalysisReport, type Report } from "@/lib/analysis-report";
@@ -89,7 +90,8 @@ export function JobFitWorkbench() {
   const activeStep = report ? 2 : draftReport ? 1 : 0;
 
   async function handleAnalyze(clarifications?: ClarificationAnswer[]) {
-    const input = parseAnalysisInput({ cvText, jobText, seniority, language, ...(clarifications ? { clarifications } : {}) });
+    const input = parseAnalysisInput({ cvText, jobText, seniority, language,
+      ...(clarifications ? { clarifications, reviewToken: draftReport?.reviewToken } : {}) });
     if (!input) {
       setAnalysisError(t.form.invalidInput);
       return;
@@ -140,6 +142,10 @@ export function JobFitWorkbench() {
       }
 
       if (!response.ok) {
+        if (response.status === 409) {
+          setAnalysisError(t.form.reviewExpired);
+          return;
+        }
         throw new Error(`Analysis request failed with status ${response.status}`);
       }
 
@@ -166,7 +172,7 @@ export function JobFitWorkbench() {
 
   function handleSkipQuestions() {
     if (!draftReport || isAnalyzing) return;
-    setReport({ ...draftReport, questions: [] });
+    setReport({ ...draftReport, questions: [], reviewToken: null });
     setDraftReport(null);
     setAnswers({});
     setAnalysisError(null);
@@ -395,6 +401,8 @@ export function JobFitWorkbench() {
                 {analysisError}
               </div>
             ) : null}
+
+            {draftReport || report ? <AnalysisCoverage report={(draftReport ?? report)!} /> : null}
 
             {draftReport ? (
               <ClarificationForm questions={draftReport.questions} answers={answers} onChange={setAnswers}
