@@ -39,19 +39,19 @@ describe("AI clarification reports", () => {
   });
 
   it("does not accept an incomplete provider response as a finished analysis", async () => {
-    parse.mockResolvedValue({ status: "incomplete", output_parsed: { roleTitle: "Developer", requirements: [requirement] } });
+    parse.mockResolvedValue({ status: "incomplete", output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [requirement] } });
     await expect(createAiAnalysis(input)).rejects.toThrow("OpenAI returned no structured analysis");
   });
 
   it("asks before classifying missing English as a gap", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [requirement] } });
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [requirement] } });
     const report = await createAiAnalysis(input);
     expect(report.gaps).toEqual([]);
     expect(report.questions[0]).toMatchObject({ requirementId: "english", question: "What is your English level?" });
   });
 
   it("passes answers separately from the CV and recalculates the score with user provenance", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{
       ...requirement, status: "si", evidenceSource: "user", clarificationId: "english", evidence: answer.details, question: null
     }] } });
     const report = await createAiAnalysis({ ...input, clarifications: [answer] });
@@ -71,7 +71,7 @@ describe("AI clarification reports", () => {
   });
 
   it("does not turn a negative answer into a positive match", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{
       ...requirement, status: "si", evidenceSource: "cv"
     }] } });
     const report = await createAiAnalysis({ ...input, clarifications: [{ ...answer, response: "no", details: "" }] });
@@ -82,7 +82,7 @@ describe("AI clarification reports", () => {
   });
 
   it("does not credit a fabricated answer or an unknown requirement", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{
       ...requirement, status: "si", evidenceSource: "user", clarificationId: "nonexistent"
     }] } });
     const report = await createAiAnalysis(input);
@@ -92,14 +92,14 @@ describe("AI clarification reports", () => {
   });
 
   it("does not ask a second round even when the model supplies questions", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [requirement] } });
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [requirement] } });
     const report = await createAiAnalysis({ ...input, clarifications: [] });
     expect(report.questions).toEqual([]);
     expect(report.requirements[0].status).toBe("unknown");
   });
 
   it("does not use an English answer to credit another requirement", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{
       ...requirement, id: "leadership", label: "Team leadership", status: "si",
       evidenceSource: "user", clarificationId: "english", evidence: answer.details,
     }] } });
@@ -110,7 +110,7 @@ describe("AI clarification reports", () => {
   });
 
   it("returns source-language excerpts while localising the assessment", async () => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Desarrollador", requirements: [{
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Desarrollador", additionalRequirements: [], requirements: [{
       ...requirement, status: "si", evidenceSource: "cv", cvQuotes: ["English B2.\nWeekly client meetings."],
     }] } });
     const supplied = { ...input, language: "es" as const, cvText: `${input.cvText}\nEnglish B2.\nWeekly client meetings.` };
@@ -125,7 +125,7 @@ describe("AI clarification reports", () => {
     { cvQuotes: ["Private invented CV quote"] },
     { evidenceSource: "cv", status: "si", cvQuotes: [] },
   ])("uses a safe fallback for untraceable AI evidence (%#)", async (invalid) => {
-    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", requirements: [{ ...requirement, ...invalid }] } });
+    parse.mockResolvedValue({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{ ...requirement, ...invalid }] } });
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const report = await createAnalysis(input);
     expect(report.source).toBe("heuristic");
@@ -134,23 +134,33 @@ describe("AI clarification reports", () => {
   });
 
   it("retains answers and provenance if AI fails during the final review", async () => {
+    parse.mockResolvedValueOnce({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [requirement] } });
+    const baseline = await createAnalysis(input);
     parse.mockRejectedValue(new Error("Unavailable"));
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const report = await createAnalysis({ ...input, clarifications: [{ ...answer, requirementId: "english_b2" }] });
+    const report = await createAnalysis({ ...input, clarifications: [answer] }, baseline);
     expect(report.source).toBe("heuristic");
     expect(report.questions).toEqual([]);
     expect(report.requirements.find((item) => item.id === "english")).toMatchObject({ status: "parcial", evidenceSource: "user" });
-    expect(report.cvImprovements).toContain("Professional English");
+    expect(report.cvImprovements).toContain("English B2");
+    expect(report.coverage).toEqual(baseline.coverage);
     expect(report.unassessedClarifications).toEqual([]);
   });
 
-  it("discloses answers that could not be matched to an assessed requirement", async () => {
+  it("keeps arbitrary original criteria when the review provider fails", async () => {
+    const supplied = { ...sampleInput, jobText: `${sampleInput.jobText} Kubernetes is required.` };
+    parse.mockResolvedValueOnce({ output_parsed: { roleTitle: "Developer", additionalRequirements: [], requirements: [{
+      ...requirement, id: "kubernetes", label: "Kubernetes", jobQuote: "Kubernetes is required."
+    }] } });
+    const baseline = await createAnalysis(supplied);
     parse.mockRejectedValue(new Error("Unavailable"));
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const report = await createAnalysis({ ...sampleInput, jobText: `${sampleInput.jobText} Kubernetes is required.`, clarifications: [{
+    const report = await createAnalysis({ ...supplied, clarifications: [{
       requirementId: "kubernetes", requirement: "Kubernetes", response: "yes", details: "I deploy containerised applications."
-    }] });
-    expect(report.unassessedClarifications).toEqual(["Kubernetes"]);
-    expect(report.cvImprovements).toEqual([]);
+    }] }, baseline);
+    expect(report.requirements).toHaveLength(1);
+    expect(report.requirements[0]).toMatchObject({ id: "kubernetes", weight: baseline.requirements[0]!.weight, status: "parcial", evidenceSource: "user" });
+    expect(report.unassessedClarifications).toEqual([]);
+    expect(report.cvImprovements).toEqual(["Kubernetes"]);
   });
 });

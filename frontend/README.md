@@ -124,13 +124,15 @@ When the first report contains questions, the interface shows a clarification fo
 | Skills and experience | Yes, Partly, Not yet | A level or example is required for Yes and Partly. Details for Not yet are optional. |
 | Practical conditions | Yes, No, Depends | Only Depends requires context. Selecting Yes or No removes previous conditional details. |
 
-The form displays each requirement, a completion counter and, for skills questions, the question and its reason. Submitting selected answers makes a second analysis request. **Continue without answering** displays the existing draft without contacting the API again.
+The form displays each requirement, a completion counter and, for skills questions, the question and its reason. It explains that the first analysis's criteria and weights will stay fixed. Submitting selected answers sends them with the draft's opaque `reviewToken`; the backend reviews only those requirements. Unanswered assessments remain unchanged. **Continue without answering** displays the existing draft without contacting the API again.
 
-There is no second round of questions. If a clarification submission fails, the existing answers remain available for retry or skipping.
+There is no second round of questions. If a clarification submission fails, the existing answers remain available for retry or skipping. The review token remains only in React state and expires after two hours. A `409` response explains that a new analysis is needed; it does not erase the inputs or answers. Editing an input clears the draft and its token together. The token is never included in a download.
 
 ### Report and export
 
 The report displays the skills score, assessed role, summary, requirement-level evidence, provenance, unresolved information and suggested next steps. Practical conditions appear in their own section and do not change the skills score. The score explanation makes the treatment of unknown requirements explicit.
+
+When `coverage.hasMoreRequirements` is `true`, a prominent notice appears above both the clarification form and final report. A disclosure shows up to three excluded criteria with original job quotes and explains that the score covers only the 12 assessed requirements. Examples are not a complete inventory. Coverage is preserved through review and export; a basic initial analysis cannot establish the advert's full coverage.
 
 Each skill and practical condition has a keyboard-accessible **View sources** disclosure. It shows the original job advert excerpt, up to two CV passages and the candidate's accepted clarification response and details. Missing CV evidence is explicitly distinguished from a confirmed gap. Unknown requirements also show the reason clarification is needed. Quotes keep the source language and are rendered as plain text, including any HTML-like content in the supplied documents.
 
@@ -146,8 +148,9 @@ The API returns a combined `requirements` array. The frontend separates it by `k
 | `conditions` | Practical conditions, with their own compatibility labels. |
 | `summary`, `strengths`, `gaps` | Assessment summary and confirmed skills findings. |
 | `cvImprovements`, `unassessedClarifications` | Suggested additions and answers that could not be assessed. |
+| `coverage` | Assessment limit, overflow decision and quoted examples of excluded criteria. |
 
-Requirement exports retain CV assessability, its reason, materiality and the `sources` object. Source indices are UTF-16 offsets into the trimmed request fields, as described in the [backend source contract](../backend/README.md#source-traceability). If there are no skills requirements, the interface displays a dash and exports `score: null`. Exported status labels are localised text rather than the raw API status codes. The download does not attach the input documents; its excerpts and answers may contain personal information, and a short input can fit entirely inside an excerpt.
+Requirement exports retain IDs, weights, CV assessability, its reason, materiality and the `sources` object. Source indices are UTF-16 offsets into the trimmed request fields, as described in the [backend source contract](../backend/README.md#source-traceability). If there are no skills requirements, the interface displays a dash and exports `score: null`. Exported status labels are localised text rather than the raw API status codes. The download does not attach the input documents; its excerpts and answers may contain personal information, and a short input can fit entirely inside an excerpt.
 
 ### Language and accessibility
 
@@ -199,6 +202,7 @@ The secret authenticates Next.js to the backend. It does not provide accounts or
 | --- | --- |
 | `400`, `413`, `415` | Localised input guidance; entered text is preserved. |
 | `408` | Upload timeout message. |
+| `409` | Start a new analysis because its original review context is invalid or expired; preserve current inputs and answers. |
 | `429` | Rate, daily or concurrency message using a recognised code and `Retry-After`. |
 | Other failures | Controlled unavailable message; internal exception details are not displayed. |
 

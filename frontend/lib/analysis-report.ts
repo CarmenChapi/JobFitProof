@@ -48,6 +48,12 @@ export type Report = {
   questions: ClarificationQuestion[];
   cvImprovements: string[];
   unassessedClarifications: string[];
+  coverage: {
+    limit: 12;
+    hasMoreRequirements: boolean | null;
+    additionalRequirements: { label: string; source: SourceQuote }[];
+  };
+  reviewToken: string | null;
 };
 
 type RecordValue = Record<string, unknown>;
@@ -99,6 +105,15 @@ function sourcesMatchInput(sources: RequirementSources, input: AnalysisRequestIn
     submitted.response === answer.response && submitted.details === answer.details);
 }
 
+function isCoverage(value: unknown): value is Report["coverage"] {
+  return isRecord(value) && hasOnlyKeys(value, ["limit", "hasMoreRequirements", "additionalRequirements"]) &&
+    value.limit === 12 && (typeof value.hasMoreRequirements === "boolean" || value.hasMoreRequirements === null) &&
+    Array.isArray(value.additionalRequirements) && value.additionalRequirements.length <= 3 &&
+    value.additionalRequirements.every((item) => isRecord(item) && hasOnlyKeys(item, ["label", "source"]) &&
+      isText(item.label, 160) && isQuote(item.source)) &&
+    (value.additionalRequirements.length === 0 || value.hasMoreRequirements === true);
+}
+
 function isRequirement(value: unknown): value is Report["requirements"][number] {
   return isRecord(value) && hasOnlyKeys(value, [
     "id", "label", "kind", "category", "categoryLabel", "status", "evidence",
@@ -125,7 +140,7 @@ function isQuestion(value: unknown): value is ClarificationQuestion {
 export function parseAnalysisReport(value: unknown, input?: AnalysisRequestInput): Report | null {
   if (!isRecord(value) || !hasOnlyKeys(value, [
     "generatedAt", "language", "seniority", "roleTitle", "score", "summary", "strengths", "gaps",
-    "requirements", "source", "questions", "cvImprovements", "unassessedClarifications",
+    "requirements", "source", "questions", "cvImprovements", "unassessedClarifications", "coverage", "reviewToken",
   ])) return null;
 
   if (
@@ -133,7 +148,9 @@ export function parseAnalysisReport(value: unknown, input?: AnalysisRequestInput
     !isOneOf(value.language, ["es", "en"]) || !isOneOf(value.seniority, ["junior", "mid", "senior"]) ||
     !isText(value.roleTitle, 120) || !isText(value.summary, 1000) ||
     typeof value.score !== "number" || !Number.isInteger(value.score) || value.score < 0 || value.score > 100 ||
-    !isOneOf(value.source, ["ai", "heuristic"]) ||
+    !isOneOf(value.source, ["ai", "heuristic"]) || !isCoverage(value.coverage) ||
+    !(value.reviewToken === null || (typeof value.reviewToken === "string" && value.reviewToken.length <= 131_072 &&
+      /^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/.test(value.reviewToken))) ||
     !isLabelList(value.strengths) || !isLabelList(value.gaps) ||
     !isLabelList(value.cvImprovements) || !isLabelList(value.unassessedClarifications) ||
     !Array.isArray(value.requirements) || value.requirements.length > 12 || !value.requirements.every(isRequirement) ||
@@ -152,6 +169,9 @@ export function parseAnalysisReport(value: unknown, input?: AnalysisRequestInput
   })) return null;
 
   if (input && !value.requirements.every((requirement) => sourcesMatchInput(requirement.sources, input))) return null;
+  if (value.coverage.hasMoreRequirements === true && value.requirements.length !== 12) return null;
+  if (input && !value.coverage.additionalRequirements.every(({ source }) =>
+    input.jobText.slice(source.start, source.end) === source.text)) return null;
 
   return value as Report;
 }

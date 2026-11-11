@@ -13,6 +13,9 @@ export const sampleInput = {
   language: "en" as const
 };
 
+// Format-only fixture for parser/proxy tests; authenticated API tests use real contexts.
+export const sampleReviewToken = `v1.${"a".repeat(16)}.fixture.${"a".repeat(22)}`;
+
 export function createQuotaStore() {
   return {
     acquire: vi.fn<AnalysisQuotaStore["acquire"]>().mockResolvedValue({

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "../../frontend/app/api/analyze/route";
 import { buildApp } from "../src/app.js";
 import { createHeuristicAnalysis } from "../src/modules/analyses/analysis.heuristic.service.js";
-import { createQuotaStore, sampleInput, serviceHeaders } from "./helpers.js";
+import { createQuotaStore, sampleInput, sampleReviewToken, serviceHeaders } from "./helpers.js";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -52,10 +52,10 @@ function forwardedIdentity(index = 0) {
 describe("Next.js analysis proxy", () => {
   it("forwards bounded clarification answers separately from the unchanged CV", async () => {
     const clarifications = [{ requirementId: "english", requirement: "English B2", response: "yes", details: "  B2; daily meetings.  " }];
-    const response = await POST(request({}, JSON.stringify({ ...sampleInput, clarifications })));
+    const response = await POST(request({}, JSON.stringify({ ...sampleInput, reviewToken: sampleReviewToken, clarifications })));
     expect(response.status).toBe(200);
     expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({
-      ...sampleInput, clarifications: [{ ...clarifications[0], details: "B2; daily meetings." }]
+      ...sampleInput, reviewToken: sampleReviewToken, clarifications: [{ ...clarifications[0], details: "B2; daily meetings." }]
     });
   });
 
@@ -323,7 +323,7 @@ describe("Next.js analysis proxy", () => {
     expect(await response.text()).not.toContain("private backend details");
   });
 
-  it.each([400, 408, 413, 415])("rebuilds upstream input errors using public messages (%s)", async (status) => {
+  it.each([400, 408, 409, 413, 415])("rebuilds upstream input errors using public messages (%s)", async (status) => {
     fetchMock.mockResolvedValue(Response.json({
       error: "PrivateInternalError", message: "private backend details", stack: "/srv/secret.ts", issues: ["synthetic-secret"]
     }, { status }));
@@ -495,7 +495,7 @@ describe("Next.js analysis proxy", () => {
       const first = await POST(request({}, JSON.stringify(input)));
       expect(first.status).toBe(200);
       const draft = await first.json();
-      const final = await POST(request({}, JSON.stringify({ ...input, clarifications: draft.questions.map(
+      const final = await POST(request({}, JSON.stringify({ ...input, reviewToken: draft.reviewToken, clarifications: draft.questions.map(
         (question: { requirementId: string; requirement: string; kind: string }) => ({
           requirementId: question.requirementId, requirement: question.requirement, kind: question.kind,
           response: "yes", details: question.kind === "condition" ? "" : "B2; weekly client meetings.",

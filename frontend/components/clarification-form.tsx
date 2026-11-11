@@ -42,6 +42,7 @@ export function ClarificationForm({ questions, answers, onChange, onSubmit, onSk
         <MessageCircle className="mb-3 size-5 text-forest" strokeWidth={1.7} aria-hidden="true" />
         <h3 ref={headingRef} tabIndex={-1} className="scroll-mt-6 text-2xl font-semibold leading-tight tracking-[-0.035em] text-ink">{t.clarification.title}</h3>
         <p className="mt-3 text-sm leading-6 text-subtle">{t.clarification.description}</p>
+        <p className="mt-2 text-xs leading-5 text-subtle">{t.clarification.fixedRequirements}</p>
         <div className="mt-5 border-t border-forest/10 pt-4">
           <p className="text-xs font-medium text-forest" role="status">{t.clarification.progress(answeredCount, questions.length)}</p>
           <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-forest/10" aria-hidden="true">

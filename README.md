@@ -15,6 +15,8 @@ The project is a local MVP intended to demonstrate an end-to-end product: a bili
 - Distinguishes evidence in the CV from information supplied in clarification answers.
 - Shows the original job advert and CV excerpts, plus any candidate answer, behind each requirement's assessment.
 - Asks about material uncertainties instead of automatically treating missing information as a confirmed gap.
+- Keeps the first analysis's requirements, categories and weights when incorporating clarification answers.
+- Warns when more than 12 criteria are detected, with quoted examples of requirements outside the assessed set.
 - Separates practical conditions, such as working hours and travel, from skills and experience.
 - Produces a weighted evidence score, requirement-level explanations and suggested next steps.
 - Exports a JSON report with evidence provenance, assessment metadata and separate skills and conditions arrays.
@@ -28,7 +30,9 @@ The project is a local MVP intended to demonstrate an end-to-end product: a bili
 4. Answer any clarification questions, or continue without answering.
 5. Review the report and export it as JSON.
 
-There is one optional clarification round. Submitting answers runs another analysis and consumes another quota reservation. Skipping all questions displays the existing draft without another API request. The application does not rewrite the original CV.
+There is one optional clarification round. Submitting answers reviews only the answered requirements and consumes another quota reservation. Requirement IDs, labels, order, categories and weights stay fixed; unanswered assessments remain unchanged. Skipping all questions displays the existing draft without another API request. The application does not rewrite the original CV.
+
+The first report includes an encrypted review context, kept in browser memory and valid for two hours with the same input and client identity. It lets the backend recover the original criteria without storing the report in Redis. An expired or invalid context prompts a new analysis while preserving entered text and answers.
 
 In the report, expand **View sources** beneath a requirement to inspect the job advert excerpt, relevant CV passages and any clarification answer. Excerpts retain their original language and wording. If there is no linked CV passage, the report says so without treating that absence as a confirmed gap. Source excerpts are included in the JSON export.
 
@@ -63,6 +67,10 @@ Not met / unknown  → no score contribution
 Practical conditions are excluded from both sides of this calculation. Unknown requirements contribute no points but are not labelled as confirmed gaps. If no skills can be assessed, the interface shows no percentage and the exported score is `null`.
 
 The result describes evidence coverage for the assessed requirements. It is not an employer's selection decision or a prediction of hiring success.
+
+The denominator stays the same during clarification: score changes come from updated evidence for the original skills, even if the AI review fails and a basic review is used. Starting a new analysis extracts a fresh set of requirements.
+
+When more than 12 criteria are detected, an explicit notice appears during clarification and in the final report. Up to three quoted examples identify excluded requirements; these are examples, not a complete inventory. The score covers only the assessed set. Detection depends on the analysis mode: AI can miss criteria, and the limited local fallback cannot establish full coverage.
 
 ## Architecture
 
